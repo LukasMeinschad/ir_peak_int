@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy.interpolate import interp1d
 
 
 def data_read_csv(filepath, sep, comma):
@@ -126,3 +127,215 @@ def plot_spectra(x,y,title):
     plt.ylabel("Absorbance / --")
     plt.title(title)
     plt.show()
+
+
+def plot_spectral_window(x,y,spectral_window,title):
+    """ 
+    Plots a given spectral window for the IR data
+
+    Attr:
+        x: x-data
+        y: y-data
+        spectral_window: a tuple with the spectral window
+        title: a string with the title
+    
+    Returns:
+        A Plot of the Spectral Window with the selected data
+    """
+    # Select the data using the spectral window
+    mask = np.logical_and(x >= spectral_window[1], x <= spectral_window[0])
+    x_window = x[mask]
+    y_window = y[mask]
+
+    plt.plot(x_window, y_window, label="Spectral Window", color ="black",linewidth = 0.6)
+    plt.gca().invert_xaxis()
+    plt.xlabel("Wavenumber / (cm${-1}$)")
+    plt.ylabel("Absorbance")
+    plt.title(title)
+    plt.show()
+    return x_window, y_window
+
+
+def peak_picking_spectral_window(x_window,y_window,height=None,distance=None,prominence=None):
+    """
+    Applies Peak Picking to a given spectral window
+
+    Attr:
+        x_window: x-data of spectral window
+        y_window: y-data of spectral window
+        height: Required height of Peaks, optional
+        distance: Required horizontal distance between peaks
+        prominence: Required prominence of peaks
+    """
+
+    peaks, properties = find_peaks(y_window, height=height, distance=distance, prominence=prominence)
+
+    plt.figure(figsize=(10,6))
+    plt.plot(x_window,y_window, label="Spectal Window", color = "black",linewidth = 0.6)
+    plt.plot(x_window[peaks],y_window[peaks], "x", label="Peaks", color ="Red")
+    plt.gca().invert_xaxis()
+    plt.title("Peak Picking Spectral Window")
+    plt.xlabel("Wavenumber / (cm${-1}$)")
+    plt.ylabel("Absorbance")
+    plt.legend()
+
+    for peak in peaks:
+        plt.annotate(f"{x_window[peak]:.0f}", (x_window[peak],y_window[peak]),textcoords="offset points", xytext=(0,5), ha="center")
+    plt.show()
+
+    return peaks,properties
+
+
+def finite_differences(x,y, order=1):
+    """ 
+    Gradient or first derivative is computed using central differences as the interior points or first, second order accurate one sides
+    differences at the boundary
+    """
+    dydx = y
+    for _ in range(order):
+        dydx = np.gradient(dydx,x)
+    return dydx
+
+def plot_derivative_spectrum(x_window, y_window, method="finite", max_order=2):
+    """ 
+    Calculates and plots the derivative spectrum using different methods for derivative computation.
+
+    Methods:
+        "finite": computation by finite differences (central differences)
+    """
+    fig, axes = plt.subplots(max_order + 1, 1, figsize=(10, 6 * (max_order + 1)))
+
+    # Plot the normal spectrum
+    axes[0].plot(x_window, y_window, label="Spectral Window", color="black", linewidth=0.6)
+    axes[0].invert_xaxis()
+    axes[0].set_title("Normal Spectrum")
+    axes[0].set_xlabel("Wavenumber / (cm${-1}$)")
+    axes[0].set_ylabel("Absorbance")
+    axes[0].legend()
+
+    # Plot the derivative spectra iteratively
+    for order in range(1, max_order + 1):
+        if method == "finite":
+            y_prime_window = finite_differences(x_window, y_window, order=order)
+        
+        axes[order].plot(x_window, y_prime_window, label=f"Derivative Spectrum (Order {order})", color="red", linewidth=0.6)
+        axes[order].invert_xaxis()
+        axes[order].set_title(f"Derivative Spectrum (Order {order})")
+        axes[order].set_xlabel("Wavenumber / (cm${-1}$)")
+        axes[order].set_ylabel(f"{order} Derivative of Absorbance")
+        axes[order].legend()
+
+    plt.tight_layout()
+    plt.show()
+
+
+
+def fit_baseline_asls_aspls(x_window,y_window, lam, tol, max_iter):
+    """ 
+    Fits the Baseline using  the Asymmetrically reweighted penalized least squares smoothing
+
+    Also fits Baseline using the Asymmetrically Least Squares smoothing and compares the convergence
+    
+    Attr:
+        x_window = selected x data
+        y_window = selected y data
+        lam = 
+        tol = 
+        max_iter
+    """
+    baseline_fitter= Baseline(x_window)
+
+    fit1,params_1 = baseline_fitter.asls(y_window, lam=lam, tol=tol, max_iter=max_iter)
+    fit2,params_2 = baseline_fitter.aspls(y_window, lam=lam, tol=tol, max_iter=max_iter)
+
+
+    plt.plot(x_window,y_window, label ="Spectral Window", color ="black", linewidth = 0.6)
+    plt.plot(x_window,fit1, label="asls baseline")
+    plt.plot(x_window,fit2, label="aspls baseline")
+    plt.legend()
+    plt.xlabel("Wavenumber / (cm$^{-1}$)")
+    plt.ylabel("Absorbance")
+    plt.legend()
+    plt.gca().invert_xaxis()
+    plt.show()
+
+    # Next of show the Fits
+    plt.figure()
+    plt.plot(np.arange(1, len(params_1["tol_history"]) + 1), params_1["tol_history"], label="asls")
+    plt.plot(np.arange(1, len(params_2["tol_history"]) + 1), params_2["tol_history"], label="aspls")
+    plt.axhline(tol, ls=":", color="k", label="tolerance")
+    plt.legend()
+    plt.show()
+
+    baseline_corrected_spectrum_asls = y_window - fit2
+    baseline_corrected_spectrum_aspls = y_window - fit2
+    return baseline_corrected_spectrum_asls, baseline_corrected_spectrum_aspls
+
+
+
+def fit_baseline_poly(x_window,y_window,p):
+    """
+    Fits the Baseline using Modpoly method
+
+    Attr:
+        x_window = selected x data
+        y_window = selected y data
+        p = degree of polyomial
+    """
+
+    baseline_fitter = Baseline(x_window)
+
+    fit, params = baseline_fitter.modpoly(y_window,poly_order=p)
+    
+    plt.figure(figsize=(10,6))
+    plt.plot(x_window,y_window, label="Spectral Window", color = "black", linewidth = 0.6)
+    plt.gca().invert_xaxis()
+    plt.plot(x_window, fit, label=f"Polynomial Order {p}", color="blue", ls="--")
+    plt.legend()
+    plt.xlabel("Wavenumber / (cm$^{-1}$)")
+    plt.ylabel("Intensity")
+
+    baseline_correted_spectrum_modpoly = y_window - fit
+    return baseline_correted_spectrum_modpoly
+
+def fit_baseline_morph(x_window,y_window, offset):
+    """ 
+    Performs a baseline fit by using a morphology based method,
+    this algorithm also approximates the half_window by using the FWHM of the largest peak
+
+    Attr:
+        x_window = selected x data
+        y_window = selected y data
+        offset = offset to addjust half_window size
+    """
+    baseline_fitter = Baseline(x_window)
+
+    peak_idx = np.argmax(y_window)
+    peak_value = y_window[peak_idx]
+
+    half_max = peak_value/2
+
+    interpolator = interp1d(x_window,y_window-half_max, kind="linear", fill_value="extrapolate")
+    roots = np.where(np.diff(np.sign(interpolator(x_window))))[0]
+
+    if len(roots) >= 2:
+        fwhm = np.abs(x_window[roots[-1]] - x_window[roots[0]])
+        x_left = x_window[roots[-1]]
+        x_right = x_window[roots[0]]
+    
+    
+    fit, params = baseline_fitter.mor(y_window,half_window=round(fwhm)+offset)
+
+
+
+
+    plt.plot(x_window,y_window, color = "black", linewidth = 0.6, label="Spectral Window")
+    plt.axhline(half_max, color = "red", ls = "--", label="Half Max Biggest Peak")
+    plt.gca().invert_xaxis()
+    plt.plot([x_left,x_right],[half_max,half_max], "go", label="FWHM Points")
+    plt.plot(x_window, fit, label="Mor Baseline")
+    plt.annotate(f"FWHM = {fwhm:.2f}", xy=((x_left + x_right)/2, half_max), xytext=(0,10), textcoords="offset points", ha="center")
+    plt.legend()
+
+    baseline_corrected_spectrum_morph = y_window - fit
+    return baseline_corrected_spectrum_morph
