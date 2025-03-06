@@ -4,7 +4,7 @@ import pandas as pd
 from scipy.interpolate import interp1d
 
 
-def data_read_csv(filepath, sep, comma):
+def data_read_csv(filepath, sep, comma, header=None):
     """ 
     Performs a data-readin of the FTIR spectrum
 
@@ -18,7 +18,7 @@ def data_read_csv(filepath, sep, comma):
         data_np: Numpy dataframe
     """
 
-    data = pd.read_csv(filepath, header=None, sep=";")
+    data = pd.read_csv(filepath, header=header, sep=";")
     data = data.replace(comma, ".", regex=True).astype(float)
     data_np = data.to_numpy() 
 
@@ -116,74 +116,6 @@ def optimize_and_plot(x, y_prime, zero_crossings_indices, idx_zero_crossing, ini
 
     return left_bound, right_bound
 
-def plot_spectra(x,y,title):
-    """
-    Plots the whole FTIR Spectrum given x, and y data
-    """
-
-    plt.plot(x,y, label="FTIR Spectrum", color = "black", linewidth = 0.6)
-    plt.gca().invert_xaxis()
-    plt.xlabel("Wavenumber (cm${-1}$)")
-    plt.ylabel("Absorbance / --")
-    plt.title(title)
-    plt.show()
-
-
-def plot_spectral_window(x,y,spectral_window,title):
-    """ 
-    Plots a given spectral window for the IR data
-
-    Attr:
-        x: x-data
-        y: y-data
-        spectral_window: a tuple with the spectral window
-        title: a string with the title
-    
-    Returns:
-        A Plot of the Spectral Window with the selected data
-    """
-    # Select the data using the spectral window
-    mask = np.logical_and(x >= spectral_window[1], x <= spectral_window[0])
-    x_window = x[mask]
-    y_window = y[mask]
-
-    plt.plot(x_window, y_window, label="Spectral Window", color ="black",linewidth = 0.6)
-    plt.gca().invert_xaxis()
-    plt.xlabel("Wavenumber / (cm${-1}$)")
-    plt.ylabel("Absorbance")
-    plt.title(title)
-    plt.show()
-    return x_window, y_window
-
-
-def peak_picking_spectral_window(x_window,y_window,height=None,distance=None,prominence=None):
-    """
-    Applies Peak Picking to a given spectral window
-
-    Attr:
-        x_window: x-data of spectral window
-        y_window: y-data of spectral window
-        height: Required height of Peaks, optional
-        distance: Required horizontal distance between peaks
-        prominence: Required prominence of peaks
-    """
-
-    peaks, properties = find_peaks(y_window, height=height, distance=distance, prominence=prominence)
-
-    plt.figure(figsize=(10,6))
-    plt.plot(x_window,y_window, label="Spectal Window", color = "black",linewidth = 0.6)
-    plt.plot(x_window[peaks],y_window[peaks], "x", label="Peaks", color ="Red")
-    plt.gca().invert_xaxis()
-    plt.title("Peak Picking Spectral Window")
-    plt.xlabel("Wavenumber / (cm${-1}$)")
-    plt.ylabel("Absorbance")
-    plt.legend()
-
-    for peak in peaks:
-        plt.annotate(f"{x_window[peak]:.0f}", (x_window[peak],y_window[peak]),textcoords="offset points", xytext=(0,5), ha="center")
-    plt.show()
-
-    return peaks,properties
 
 
 def finite_differences(x,y, order=1):

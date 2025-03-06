@@ -18,18 +18,32 @@ def plot_spectra(x,y,title):
     plt.show()
 
 
-def overlay_spectra(data_np, title="Overlayed Spectra"):
-    
+def overlay_spectra(data_np, title="Overlayed Spectra",annotations=None, y_axis=True, shift=None):
     """
     Overlays the Spectra of a given dataset
+    
+    Parameters:
+    data_np: numpy array with the data
+    title: string with the title of the plot
+    annotations: list of strings with the annotations
+    y_axis: boolean to show the y-axis
+    shift: float with the shift of the individual spectra for better comparison
+    
     """
     fig, ax = plt.subplots()
     for i in range(1,data_np.shape[1]):
-        ax.plot(data_np[:,0],data_np[:,i],label="Measurement "+str(i))
+        if shift:
+            ax.plot(data_np[:,0],data_np[:,i]+shift*i,label=annotations[i-1])
+        else:
+            ax.plot(data_np[:,0],data_np[:,i],label=annotations[i-1])
     ax.legend()
+    # Remove y-axis if keyword is set
+    if not y_axis:
+        ax.get_yaxis().set_visible(False)
     ax.set_title(title)
     ax.set_xlabel("Wavelength (cm-1)")
     ax.set_ylabel("Absorbance")      
+    ax.invert_xaxis()
     plt.show()
 
 
