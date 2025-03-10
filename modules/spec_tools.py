@@ -2,6 +2,124 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.interpolate import interp1d
+import altair as alt
+
+class Spectrum:
+    def __init__(self,name,data):
+
+        """ 
+        Initializes the spectrum object
+
+        Parameters:
+            name (str): Name of the Compound
+            data (np.array): The data of the spectrum as NumPy array
+        """
+        self.name = name
+        self.data = data
+
+    
+
+    @classmethod
+    def from_csv(cls,filepath,sep,comma,header=None):
+        """ 
+        Reads in the data from a CSV file
+
+        Parameters:
+            filepath (str): Filepath of the CSV
+            sep (str): Seperator used in the file
+            comma (str): Comma point used (either . or , )
+            header (int): None if no header is present, else the header determines how much rows are skipped
+        """
+        data = pd.read_csv(filepath, header=header, sep=sep)
+        data = data.replace(comma, ".", regex=True).astype(float)
+        data_np = data.to_numpy()
+        return cls(filepath,data_np)
+    
+
+    
+    def derivative(self,data):
+        """ 
+        Calculates the numerical deriative using central differences
+
+        Returns:
+            np.array: The Numerical Derivative [x,y']
+        """
+        return np.gradient(self.data[:,1],self.data[:,0])
+
+     
+
+    def plot_spectrum(self,title=None):
+        """ 
+        Plots the spectrum using Altair as a package
+        
+        Parameters:
+            self: The Spectrum object
+            title: The title of the plot
+            cols: Further specify which colums should be used
+        """
+        alt.data_transformers.disable_max_rows()
+        if title:
+            title = "Spectrum of " + self.name
+        else:
+            title = title
+
+        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
+        char = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title=title,
+            width = 800,
+            height = 400
+        )
+
+        # Create Selection
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+        chart = char.add_selection(selection)
+
+        return chart
+
+    def plot_derivative(self,title=None):
+        """ 
+        Plots the Derivative Spectrum of the Given Spectrum
+        """
+        alt.data_transformers.disable_max_rows()
+        if title:
+            title = "Derivative Spectrum of " + self.name
+        else:
+            title = title
+
+        derivative = self.derivative(self.data[:,0:2])
+        data = np.zeros((len(self.data),2))
+        data[:,0] = self.data[:,0]
+        data[:,1] = derivative
+        data = pd.DataFrame(data, columns=["x","y"])
+
+        char = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="First Derivative of Intensity"),
+            color=alt.value("red")
+        ).properties(
+            title=title,
+            width = 800,
+            height = 400
+        )
+
+        # Create Selection
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+        chart = char.add_selection(selection)
+
+        return chart
+
+
+
+
+
 
 
 def data_read_csv(filepath, sep, comma, header=None):
@@ -12,6 +130,7 @@ def data_read_csv(filepath, sep, comma, header=None):
         filepath: Filepath of the CSV 
         sep: Seperator used in the file
         comma: Comma point used (either . or , )
+        header: None if no header is present, else the header determines how much rows are skipped
     
     Returns:
         data_pd: Pandas Dataframe
