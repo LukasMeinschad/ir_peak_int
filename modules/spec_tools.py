@@ -64,7 +64,7 @@ class Spectrum:
             title = title
 
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
-        char = alt.Chart(data).mark_line().encode(
+        chart = alt.Chart(data).mark_line().encode(
             x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
@@ -78,7 +78,7 @@ class Spectrum:
         selection = alt.selection_interval(bind="scales")
 
         # Add selection to chart
-        chart = char.add_selection(selection)
+        chart = chart.add_selection(selection)
 
         return chart
 
@@ -98,7 +98,7 @@ class Spectrum:
         data[:,1] = derivative
         data = pd.DataFrame(data, columns=["x","y"])
 
-        char = alt.Chart(data).mark_line().encode(
+        chart = alt.Chart(data).mark_line().encode(
             x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="First Derivative of Intensity"),
             color=alt.value("red")
@@ -112,10 +112,110 @@ class Spectrum:
         selection = alt.selection_interval(bind="scales")
 
         # Add selection to chart
-        chart = char.add_selection(selection)
+        chart = chart.add_selection(selection)
 
         return chart
+    
+    def plot_spectral_window(self,x_min,x_max,title=None):
+        """
+        Plots a given spectral window of the Spectrum object
 
+        Attributes:
+            x_min: Minimum Wavenumber
+            x_max: Maximum Wavenumber
+            title: Title of the plot
+        """
+        data = self.data
+        mask = (data[:,0] >= x_min) & (data[:,0] <= x_max)
+        data = data[mask]
+        
+        # Select column one
+        data = pd.DataFrame(data[:,0:2], columns=["x","y"])
+        alt.data_transformers.disable_max_rows()
+        if title:
+            title = "Spectral Window of " + self.name
+        else:
+            title = title
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title=title,
+            width = 800,
+            height = 400
+        )
+
+        # Create Selection
+
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+
+        chart = chart.add_selection(selection)
+
+        return chart
+    
+    def calculate_integral(self,x_min,x_max, plotting_tol=50):
+        """ 
+        Calculates the Integral of the Spectrum in a given Spectral Window and 
+        visualized the area under the curve in the plot
+        """
+
+
+
+        data = self.data
+
+    
+        mask_integral = (data[:,0] >= x_min) & (data[:,0] <= x_max)
+        mask_plot = (data[:,0] >= x_min - plotting_tol) & (data[:,0] <= x_max + plotting_tol)
+
+        data_int = data[mask_integral]
+        data_plot = data[mask_plot]
+
+
+
+        
+
+        # Calculate the Integral
+        # Trapzoidal Rule
+        integral = np.abs(np.trapz(data_int[:,1],data_int[:,0]))
+
+        # Plot the Spectrum
+
+        data_plot = pd.DataFrame(data_plot[:,0:2], columns=["x","y"])
+        chart = alt.Chart(data_plot).mark_area().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title="Spectral Window",
+            width = 800,
+            height = 400
+        )
+
+        # Highlight the Area in the Spectrum
+        data_int = pd.DataFrame(data_int[:,0:2], columns=["x","y"])
+        area = alt.Chart(data_int).mark_area(line=True).encode(
+            x="x",
+            y="y"
+        ).transform_filter(
+            alt.FieldRangePredicate(field="x", range=[x_min,x_max])
+        )
+
+        chart = chart + area
+
+
+        # Create Selection
+
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+
+        chart = chart.add_selection(selection)
+        
+        return chart, integral
 
 
 
