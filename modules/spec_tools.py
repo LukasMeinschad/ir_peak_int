@@ -2,7 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.interpolate import interp1d
+from scipy.signal import find_peaks
 import altair as alt
+from pybaselines import Baseline as Baseline_fit
+
 
 class Spectrum:
     def __init__(self,name,data):
@@ -35,7 +38,6 @@ class Spectrum:
         data_np = data.to_numpy()
         return cls(filepath,data_np)
     
-
     
     def derivative(self,data):
         """ 
@@ -47,6 +49,50 @@ class Spectrum:
         return np.gradient(self.data[:,1],self.data[:,0])
 
      
+    def interactive_integration(self):
+        """ 
+        Allows for interactive integration where the user is able to set the boundaries of integration
+        using the altair package
+        """
+
+        alt.data_transformers.disable_max_rows()
+
+        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"]) 
+
+        interval_selection = alt.selection_interval(encodings=["x"],name="interval")
+
+        base_chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title="Interactive Integration",
+            width = 800,
+            height = 400
+        ).add_selection(
+            interval_selection
+        )
+
+        integral = alt.Chart(data).mark_text(align="left",dx=10,dy=10, fontSize=14).encode(
+            x=alt.value(10),
+            y=alt.value(10),
+            text=alt.condition(interval_selection,alt.datum(alt.Expr("sum(datum.y)*(max(datum.x)-min(datum.x)/ count(datum.x)")),
+            alt.value("Select an Interval to Calculate the Integral")
+            )
+        ).transform_filter(
+            interval_selection
+        ).transform_aggregate(
+            sum_y="sum(y)",
+            count_x="count(x)",
+            min_x="min(x)",
+            max_x="max(x)"
+        ).transform_calculate(
+            integral="datum.sum_y * (datum.max_x - datum.min_x) / datum.count_x"
+        )
+
+        chart = base_chart + integral
+
+        return chart
 
     def plot_spectrum(self,title=None):
         """ 
@@ -157,6 +203,85 @@ class Spectrum:
 
         return chart
     
+    def plot_spectral_window_peak_picking(self,x_min,x_max,title=None,threshold=0.1):
+        """
+        Performs peakpicking on a spectrum in a given spectral window using the Scipy find_peaks function
+
+        Attributes:
+            x_min: Minimum Wavenumber
+            x_max: Maximum Wavenumber
+            title: Title of the plot
+            threshold: Threshold for peak picking
+        """
+
+        data = self.data
+        mask = (data[:,0] >= x_min) & (data[:,0] <= x_max)
+        data = data[mask]
+
+        # Select column one
+        data = pd.DataFrame(data[:,0:2], columns=["x","y"])
+        alt.data_transformers.disable_max_rows()
+        if title:
+            title = "Spectral Window of " + self.name
+        else:
+            title = title
+
+        # Find the peaks
+
+        peaks, _ = find_peaks(data["y"], height=threshold)
+
+        # Create the chart
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title=title,
+            width = 800,
+            height = 400
+        )
+
+        # Create the scatter plot for the peaks
+        data_peaks = data.iloc[peaks]
+        peaks = alt.Chart(data_peaks).mark_point(color="red").encode(
+            x="x",
+            y="y"
+        )
+
+        annotations = alt.Chart(data_peaks).mark_text(align="left", baseline="middle", dx=7, dy=-7, fontSize=14).encode(
+            x="x",
+            y="y",
+            text=alt.Text("x:Q",format=".2f")
+        )
+
+        # Create Selection
+
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+
+        chart = chart+ annotations + peaks.add_selection(selection)
+
+        return chart
+    
+    # Function to split a spectral window in a own object
+
+    def split_spectral_window(self,window):
+        """
+        Function that splits the spectrum object at the given x_min,x_max values.
+        The obtained spectrum can then be used for futher processing
+
+        Attributes:
+            window = A list of two values [x_min,x_max]
+        """
+
+        data = self.data
+        mask = (data[:,0] >= window[0]) & (data[:,0] <= window[1])
+        data = data[mask]
+
+        return Spectrum(self.name + " " + str(window),data) 
+
+    
     def calculate_integral(self,x_min,x_max, plotting_tol=50):
         """ 
         Calculates the Integral of the Spectrum in a given Spectral Window and 
@@ -197,14 +322,33 @@ class Spectrum:
 
         # Highlight the Area in the Spectrum
         data_int = pd.DataFrame(data_int[:,0:2], columns=["x","y"])
-        area = alt.Chart(data_int).mark_area(line=True).encode(
+        area = alt.Chart(data_int).mark_area(line={"color": "darkgreen"},color=alt.Gradient(
+            gradient = "linear",
+            stops = [alt.GradientStop(color="white", offset=0),
+                     alt.GradientStop(color="darkgreen", offset=1)],
+                     x1=1,
+                     x2=1,
+                     y1=1,
+                     y2=0
+        )).encode(
             x="x",
             y="y"
         ).transform_filter(
             alt.FieldRangePredicate(field="x", range=[x_min,x_max])
         )
 
-        chart = chart + area
+        annotation = alt.Chart(pd.DataFrame({
+            "x":[x_min + (x_max - x_min)/2],
+            "y": [data_int["y"].max()],
+            "text": [f"Integral: {integral:.2f}"]
+        })).mark_text(align="center", baseline="bottom", fontSize=14).encode(                                 
+            x="x:Q",
+            y="y:Q",
+            text="text:N"
+        )
+
+
+        chart = chart + area + annotation
 
 
         # Create Selection
@@ -217,6 +361,284 @@ class Spectrum:
         
         return chart, integral
 
+    def plot_multiple_spectral_windows(self,ls_of_windows,title="None", subtitles=None):
+        """ 
+        Function to plot multiple spectral windows
+
+        Attr:
+            ls_of_windows: List of tuples with the spectral windows
+            title: Title of the plot
+            subtitles: List of subtitles for the plots
+        """
+
+        num_windows = len(ls_of_windows)
+        rows = (num_windows + 1) // 2
+
+        charts = []
+        for i in range(num_windows):
+            x_min, x_max = ls_of_windows[i]
+            mask = (self.data[:,0] >= x_min) & (self.data[:,0] <= x_max)
+            data_window = self.data[mask]
+
+            # convert to pandas dataframe
+            data_df = pd.DataFrame(data_window[:,0:2], columns=["x","y"])
+
+            chart = alt.Chart(data_df).mark_line().encode(
+                x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+                y=alt.Y("y", title="Intensity"),
+                color=alt.value("black")
+            ).properties(
+                title=subtitles[i] if subtitles else f"Spectral Window {i+1}",
+                width = 200,
+                height = 200
+            ).add_selection(
+                alt.selection_interval(bind="scales")
+            )
+            charts.append(chart)
+        
+        # Combine Charts into a grid
+
+        grid = alt.vconcat(*[alt.hconcat(*charts[i:i+2]) for i in range(0,num_windows,2)]).properties(
+            title=title
+        )
+
+        return grid
+    
+
+
+
+    def integrate_multiple_spectral_windows(self,ls_of_windows, title="None", subtitles=None):
+        """ 
+        Function to integrate multiple spectral windows
+
+        Attr:
+            ls_of_windows: List of tuples with the spectral windows
+        """
+
+        num_windows = len(ls_of_windows)
+        rows  = (num_windows + 1) // 2
+
+        integrals = []
+        charts = []
+
+        for i in range(num_windows):
+            x_min, x_max = ls_of_windows[i]
+            mask = (self.data[:,0] >= x_min) & (self.data[:,0] <= x_max)
+            data_window = self.data[mask]
+
+            # convert to pandas dataframe
+            data_df = pd.DataFrame(data_window[:,0:2], columns=["x","y"])
+
+            # Calculate the Integral
+            # Trapzoidal Rule
+            integral = np.abs(np.trapz(data_window[:,1],data_window[:,0]))
+            integrals.append(integral)
+
+            # Plot the Spectrum
+
+            data_plot = pd.DataFrame(data_window[:,0:2], columns=["x","y"])
+
+            chart = alt.Chart(data_plot).mark_area().encode(
+                x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+                y=alt.Y("y", title="Intensity"),
+                color=alt.value("black")
+            ).properties(
+                title=subtitles[i] if subtitles else f"Spectral Window {i+1}",
+                width = 200,
+                height = 200
+            )
+
+            # Highlight the Area in the Spectrum
+
+            area = alt.Chart(data_plot).mark_area(line={"color": "darkgreen"},color=alt.Gradient(
+                gradient = "linear",
+                stops = [alt.GradientStop(color="white", offset=0),
+                        alt.GradientStop(color="darkgreen", offset=1)],
+                        x1=1,
+                        x2=1,
+                        y1=1,
+                        y2=0
+            )).encode(
+                x="x",
+                y="y"
+            ).transform_filter(
+                alt.FieldRangePredicate(field="x", range=[x_min,x_max])
+            )
+
+            annotation = alt.Chart(pd.DataFrame({
+                "x":[x_min + (x_max - x_min)/2],
+                "y": [data_plot["y"].max()],
+                "text": [f"Integral: {integral:.2f}"]
+            })).mark_text(align="center", baseline="bottom", fontSize=12).encode(                                 
+                x="x:Q",
+                y="y:Q",
+                text="text:N"
+            )
+
+            # Add Selection
+
+            selection = alt.selection_interval(bind="scales")
+
+            chart = chart + area + annotation
+            
+            # Add Selection to chart
+            chart = chart.add_selection(selection)
+
+
+            charts.append(chart)
+
+
+        # Combine Charts into a grid
+
+        grid = alt.vconcat(*[alt.hconcat(*charts[i:i+2]) for i in range(0,num_windows,2)]).properties(
+            title=title if title else f"Integrals of {self.name}"
+        )
+
+        return grid, integrals
+    
+
+class Baseline:
+    """
+    A baseline class which contains different methods for baseline correction
+    """
+
+    def __init__(self,spectrum):
+        """
+        Initializes the Baseline class.
+
+        Parameters:
+            spectrum (object) a Spectrum object
+        """
+
+        self.spectrum = spectrum
+        self.baseline = None
+
+
+    def fit_baseline_asls(self,lam,tol,max_iter):
+        """
+        Calculates the Baseline Fitting using Asls and Aspls method
+        """
+
+        y = self.spectrum.data[:,1]
+
+        baseline_fitter = Baseline_fit(self.spectrum.data[:,0])
+
+        # Fit the Baseline
+
+        fit,params = baseline_fitter.asls(y, lam=lam, tol=tol, max_iter=max_iter)
+
+        # Modify Baseline Object
+
+        self.baseline = fit
+
+        return fit,params
+    
+    def fit_baseline_iasls(self,lam,tol,max_iter):
+        """
+        Fits the baseline using improved asymmetric least squares method
+
+        Parameters:
+            lam (float): Lambda value for the method smoothing value
+            tol (float): Tolerance value
+            max_iter (int): Maximum number of iterations
+        """
+
+        y = self.spectrum.data[:,1]
+
+        baseline_fitter = Baseline_fit(self.spectrum.data[:,0])
+
+        fit,params = baseline_fitter.iasls(y, lam=lam, tol=tol, max_iter=max_iter)
+
+        self.baseline = fit
+
+        return fit,params
+
+    
+    def fit_baseline_poly(self,p):
+        """
+        Fits a polynomial baseline to the spectrum. Uses least squares method to fit the polynomial to the data
+
+        Parameters:
+            p (int): The degree of the polynomial
+        """
+
+        y = self.spectrum.data[:,1]
+        baseline_fitter = Baseline_fit(self.spectrum.data[:,0])
+
+        fit,params = baseline_fitter.poly(y,poly_order=p)
+
+        self.baseline = fit
+
+        return fit,params
+
+    
+    def substract_baseline(self):
+        """ 
+        Substracts the current baseline from the spectrum
+
+        Returns:
+            Spectrum: object of the spectrum class
+
+        """
+
+        y = self.spectrum.data[:,1]
+        y_corrected = y - self.baseline
+
+        return Spectrum(self.spectrum.name + " Corrected", np.column_stack((self.spectrum.data[:,0],y_corrected)))
+
+
+    def plot_baseline_and_spectrum(self,title=None):
+        """ 
+        Method to plot a given baseline
+        """
+
+        data = self.spectrum.data
+
+        # convert to pandas dataframe
+        data = pd.DataFrame(data[:,0:2], columns=["x","y"])
+
+        # Create the chart
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title=title,
+            width = 800,
+            height = 400
+        )
+
+        data_baseline = pd.DataFrame({
+            "x": data["x"],
+            "y": self.baseline
+        })
+        
+        # Plot Baseline
+
+        baseline = alt.Chart(data_baseline).mark_line(color="red").encode(
+            x="x",
+            y="y"
+        )
+
+        combined = alt.layer(
+            chart.encode(color=alt.value("black")).properties(title="Spectrum"),
+            baseline.encode(color=alt.value("red")).properties(title="Baseline")
+        ).resolve_scale(
+            color="independent"
+            ).properties(
+            title=title,
+            width = 800,
+            height = 400
+        )
+
+        selection = alt.selection_interval(bind="scales")
+
+
+        combined = combined.add_selection(selection)
+
+        return combined
+    
 
 
 
