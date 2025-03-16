@@ -6,6 +6,25 @@ from scipy.signal import find_peaks
 import altair as alt
 from pybaselines import Baseline as Baseline_fit
 
+# Importing the necessary packages for the deconvolution
+from scipy.optimize import curve_fit
+
+
+# General Functions
+
+def ratios_of_integrals(integrals,reference):
+    """
+    Calculates the ratios of a list of integrals to a given reference
+
+    The reference should be given as a index
+    """
+
+    ratios = []
+    for integral in integrals:
+        ratio = integral/integrals[reference]
+        ratios.append(ratio)
+    return ratios
+
 
 class Spectrum:
     def __init__(self,name,data):
@@ -48,6 +67,89 @@ class Spectrum:
         """
         return np.gradient(self.data[:,1],self.data[:,0])
 
+    def derivative_spectrum(self):
+        """  
+        Calculates the derivative of spectrum and gives it back as a new Spectrum object
+
+        Returns:
+            Spectrum: The derivative spectrum
+        """
+
+        derivative = self.derivative(self.data)
+        return Spectrum(self.name + " Derivative", np.column_stack((self.data[:,0],derivative)))
+
+
+    def find_maxima(self, threshold=0.1, distance=1):
+        """
+        Finds the Indices of local maxima and minima using scipy find peaks
+
+        Parameters:
+            treshold: The treshold for peak picking
+            distance: The minimum distance between peaks 
+        """
+
+        # Find normal peaks
+        peaks, _ = find_peaks(self.data[:,1], height=threshold, distance=distance)
+        
+        # Find also negative peaks
+
+        negative_peaks, _ = find_peaks(-self.data[:,1], height=threshold, distance=distance)
+        peaks = np.concatenate([peaks,negative_peaks])
+
+        
+
+        return peaks
+
+
+    def plot_spectrum_with_peaks(self,peaks,title=None):
+        """ 
+        Plots the spectrum and marks a given list of peaks
+
+        Parameters:
+            peaks: List of peaks
+            title: Title of the plot
+        """
+
+        alt.data_transformers.disable_max_rows()
+
+        if not title:
+            title = "Spectrum of " + self.name
+ 
+
+        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title=title,
+            width = 800,
+            height = 400
+        )
+
+        # Create Selection
+
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+
+        chart = chart.add_selection(selection)
+
+        # Create the scatter plot for the peaks
+
+        data_peaks = data.iloc[peaks]
+
+        peaks_plot = alt.Chart(data_peaks).mark_point(color="red").encode(
+            x="x",
+            y="y"
+        )
+
+        # combine chart
+
+        chart = chart + peaks_plot
+
+        return chart
+
      
     def interactive_integration(self):
         """ 
@@ -57,42 +159,58 @@ class Spectrum:
 
         alt.data_transformers.disable_max_rows()
 
-        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"]) 
+        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
 
-        interval_selection = alt.selection_interval(encodings=["x"],name="interval")
-
-        base_chart = alt.Chart(data).mark_line().encode(
+        base = alt.Chart(data).mark_line().encode(
             x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
-        ).properties(
-            title="Interactive Integration",
+        )
+
+        # Add a brush selection for x-axis
+
+        brush = alt.selection_interval(encodings=["x"], resolve="intersect")
+
+        # Create the background chart with brush
+
+        background = base.add_params(brush)
+
+        # Create the selected chart area
+
+        selected = base.transform_filter(brush).mark_area( 
+            color = "blue",
+            opacity = 0.5
+        )
+
+        # Calculate the integral under the curve for selected interval
+
+        integral_text = alt.Chart(data).mark_text(
+            align="center",
+            baseline="middle",
+            fontSize=14,
+            color = "black",
+            dx=10,
+            dy=10
+        ).encode(
+            x = alt.value(400),
+            y = alt.value(50)
+        ).transform_filter(
+            brush
+        ).transform_aggregate(
+            integral="sum(y)"
+        ).encode(
+            text=alt.Text("integral:Q", format=".2f")
+        )
+
+        # combine the charts
+
+        chart = (background + selected + integral_text).properties(
             width = 800,
             height = 400
-        ).add_selection(
-            interval_selection
         )
-
-        integral = alt.Chart(data).mark_text(align="left",dx=10,dy=10, fontSize=14).encode(
-            x=alt.value(10),
-            y=alt.value(10),
-            text=alt.condition(interval_selection,alt.datum(alt.Expr("sum(datum.y)*(max(datum.x)-min(datum.x)/ count(datum.x)")),
-            alt.value("Select an Interval to Calculate the Integral")
-            )
-        ).transform_filter(
-            interval_selection
-        ).transform_aggregate(
-            sum_y="sum(y)",
-            count_x="count(x)",
-            min_x="min(x)",
-            max_x="max(x)"
-        ).transform_calculate(
-            integral="datum.sum_y * (datum.max_x - datum.min_x) / datum.count_x"
-        )
-
-        chart = base_chart + integral
 
         return chart
+
 
     def plot_spectrum(self,title=None):
         """ 
@@ -202,6 +320,64 @@ class Spectrum:
         chart = chart.add_selection(selection)
 
         return chart
+
+    def plot_spectrum_peak_picking(self,title=None,threshold=0.01):
+        """
+        Performs peakpicking on a total given spectrum object using the Scipy find_peaks function
+
+        Attributes:
+            title: Title of the plot
+            threshold: Threshold for peak picking
+        """
+
+        alt.data_transformers.disable_max_rows()
+
+        if not title:
+            title = "Spectrum of " + self.name
+
+        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
+
+        # Find the peaks
+
+        peaks, _ = find_peaks(data["y"], height=threshold)
+
+
+        # Create the chart
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title=title,
+            width = 800,
+            height = 400
+        )
+
+        # Create the scatter plot for the peaks
+
+        data_peaks = data.iloc[peaks]
+
+        peaks_chart = alt.Chart(data_peaks).mark_point(color="red").encode(
+            x="x",
+            y="y"
+        )
+
+        # Create Selection
+
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+
+        chart = chart.add_selection(selection)
+
+        # Combine chart
+        
+        chart = chart + peaks_chart
+
+        return chart,peaks
+
+
     
     def plot_spectral_window_peak_picking(self,x_min,x_max,title=None,threshold=0.1):
         """
@@ -262,7 +438,7 @@ class Spectrum:
 
         chart = chart+ annotations + peaks.add_selection(selection)
 
-        return chart
+        return chart,peaks
     
     # Function to split a spectral window in a own object
 
@@ -912,3 +1088,151 @@ def fit_baseline_morph(x_window,y_window, offset):
 
     baseline_corrected_spectrum_morph = y_window - fit
     return baseline_corrected_spectrum_morph
+
+
+class Deconvolution:
+    """
+    Class for different deconvolution methods for peaks
+    """
+
+    def __init__(self,spectrum,peaks):
+        """
+        Initializes the Deconvolution class
+
+        Attr:
+            spectrum: Spectrum object
+            peaks: Peaks of the spectrum given as list
+            fits: a list of fits
+        """
+        self.spectrum = spectrum
+        self.peaks = peaks 
+        self.fits = None
+
+
+    # Functions
+
+    @classmethod
+
+    def gaussian(cls,x,amplitude,mean,stddev):
+        """
+        Gaussian Function
+        """
+        return amplitude * np.exp(-((x-mean)**2)/(2*stddev**2))
+
+    def fit_gaussian(self,peak, broadness=10):
+        """
+        Fits a Gaussian to a given peak
+        """
+
+        x = self.spectrum.data[:,0]
+        y = self.spectrum.data[:,1]
+
+        # peak is given as index add a broadness to the peak
+        # add the interval of [-broadness,broadness] to the peak
+
+        peak_interval = np.arange(peak-broadness,peak+broadness)
+
+        # Select interval from data
+
+        x_peak = x[peak_interval]
+
+        y_peak = y[peak_interval]
+
+        # Fit the Gaussian
+
+        popt, _ = curve_fit(self.gaussian,x_peak,y_peak,p0=[y[peak],x[peak],1])
+
+        return popt
+
+    def plot_gaussian_fit(self,peak, broadness=10):
+        """
+        Helper Function that plots the gaussian fit
+        """
+
+        x = self.spectrum.data[:,0]
+        y = self.spectrum.data[:,1]
+
+        popt = self.fit_gaussian(peak,broadness)
+
+        fit = self.gaussian(x,*popt)
+
+        plt.plot(x,y, label="Spectrum", color="black")
+        plt.plot(x,fit, label="Gaussian Fit", color="red")
+        plt.gca().invert_xaxis()
+        plt.legend()
+        plt.show()
+
+    # Function to fit multiple gaussians
+
+    def fit_multiple_gaussians_and_plot(self, broadness=10):
+        """
+        General Function to Fit all the Peaks of the Deconvolution Object with Gaussians
+        """
+
+        x = self.spectrum.data[:,0]
+        y = self.spectrum.data[:,1]
+
+        # Create the Fits
+        fits = []
+        fit_labels = []
+
+        for i, peak in enumerate(self.peaks):
+            popt = self.fit_gaussian(peak, broadness)
+            fit = self.gaussian(x, *popt)
+            fits.append(fit)
+            fit_labels.append(f"Fit {i+1}")
+
+        # Now make an Altair chart and plot all the fits
+        data = pd.DataFrame({"x": x, "y": y})
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title="Spectrum",
+            width=800,
+            height=400
+        )
+
+        # Create Selection
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+        chart = chart.add_selection(selection)
+
+        # Create a color for each fit
+        colors = ["red", "blue", "green", "orange", "purple", "brown", "pink", "grey", "yellow", "cyan"]
+
+        # Create a DataFrame for the fits
+        fits_data = pd.DataFrame({"x": np.tile(x, len(fits)), "y": np.concatenate(fits), "fit": np.repeat(fit_labels, len(x))})
+
+        # Create the chart for the fits
+        chart_fits = alt.Chart(fits_data).mark_line().encode(
+            x="x",
+            y="y",
+            color=alt.Color("fit:N", scale=alt.Scale(range=colors), legend=alt.Legend(title="Fits"))
+        )
+
+        # Combine the charts
+        chart = chart + chart_fits
+
+        # Add fits to object
+
+        self.fits = fits
+
+        return chart
+
+    def calculate_integral_of_fits(self):
+        """
+        Calculates the Integral of the Fits
+        """
+
+        integrals = []
+        for fit in self.fits:
+            integral = np.abs(np.trapz(fit,self.spectrum.data[:,0]))
+            integrals.append(integral)
+
+        return integrals
+
+    
