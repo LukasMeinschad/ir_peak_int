@@ -9,6 +9,8 @@ from pybaselines import Baseline as Baseline_fit
 # Importing the necessary packages for the deconvolution
 from scipy.optimize import curve_fit
 
+from scipy.signal import savgol_filter
+
 
 # General Functions
 
@@ -222,10 +224,11 @@ class Spectrum:
             cols: Further specify which colums should be used
         """
         alt.data_transformers.disable_max_rows()
-        if title:
+        
+        if not title:
             title = "Spectrum of " + self.name
-        else:
-            title = title
+        
+
 
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
         chart = alt.Chart(data).mark_line().encode(
@@ -296,10 +299,11 @@ class Spectrum:
         # Select column one
         data = pd.DataFrame(data[:,0:2], columns=["x","y"])
         alt.data_transformers.disable_max_rows()
-        if title:
+
+        if not title:
             title = "Spectral Window of " + self.name
-        else:
-            title = title
+
+
 
         chart = alt.Chart(data).mark_line().encode(
             x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
@@ -397,10 +401,11 @@ class Spectrum:
         # Select column one
         data = pd.DataFrame(data[:,0:2], columns=["x","y"])
         alt.data_transformers.disable_max_rows()
-        if title:
+
+        if not title:
             title = "Spectral Window of " + self.name
-        else:
-            title = title
+
+        
 
         # Find the peaks
 
@@ -770,6 +775,9 @@ class Baseline:
 
         data = self.spectrum.data
 
+        if not title:
+            title = "Baselinefitting " + self.spectrum.name
+
         # convert to pandas dataframe
         data = pd.DataFrame(data[:,0:2], columns=["x","y"])
 
@@ -815,8 +823,69 @@ class Baseline:
 
         return combined
     
+    def savgol_filter(self, poly_order = 3, window_size= 10, offset = 0.05):
+        """
+        Applies a Savitzky-Golay filter to the spectrum.
+
+        Uses the Respective Scipy Method
+
+        Some key observations to note:
+
+            + Small Window Size Low Degree = Smooths data but doesnt capture overall trend
+            + Small Window Size High Degree = Captures trend but may overfits data
+            + Large Window Size Low Degree = Provides stable smoothing but may smooth out important features
+            + Large Window Size, High Degree = May introduce artifacts
+        """
+
+        # Make chart of original data
+        data = pd.DataFrame(self.spectrum.data[:,0:2], columns=["x","y"])
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black"),
+        ).properties(
+            title="Original Spectrum",
+            width = 800,
+            height = 400
+        )
+
+        # Create Selection
+
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+
+        chart = chart.add_selection(selection)
+
+        # Apply the Savitzky-Golay Filter
+
+        y_smooth = savgol_filter(self.spectrum.data[:,1], window_size, poly_order)
+
+        # Alter Data in self
+
+        self.spectrum.data[:,1] = y_smooth
+
+        # Make chart of smoothed data
+
+        data_smooth = pd.DataFrame(self.spectrum.data[:,0:2], columns=["x","y"])
+
+        # move y up by offset for better visalization
+
+        data_smooth["y"] = data_smooth["y"] + offset
 
 
+        chart_smooth = alt.Chart(data_smooth).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("red")
+        )
+
+        # Combine the charts
+
+        combined = chart + chart_smooth
+
+        return combined 
 
 
 
@@ -1118,6 +1187,98 @@ class Deconvolution:
         Gaussian Function
         """
         return amplitude * np.exp(-((x-mean)**2)/(2*stddev**2))
+    
+
+    @classmethod
+    def barplot_integrals(cls, list_of_annotations):
+        """
+        Given a list of annotations makes a bar plot of the integrals
+        """
+
+        x = [annotation["x"] for annotation in list_of_annotations]
+        y = [annotation["y"] for annotation in list_of_annotations]
+        integrals = [float(annotation["text"].split(":")[1]) for annotation in list_of_annotations]
+
+        data = pd.DataFrame(
+            {
+                "x": x,
+                "y": y,
+                "integrals": integrals
+            }
+        )
+
+        chart = alt.Chart(data).mark_bar().encode(
+            x = alt.X("x:O", title="Wavenumber", axis=alt.Axis(labelAngle=-45)),
+            y = alt.Y("integrals:Q", title="Integral"),
+        ).properties(
+            title="Peak Integrals",
+            width = 800,
+            height = 400
+        )
+
+        text = chart.mark_text(align="center", baseline="middle", dy=-5).encode(
+            text="integrals:Q"
+        ).encode(
+            text=alt.Text("integrals:Q", format=".3f")
+        )
+
+
+        return chart + text
+
+
+    @classmethod
+    def heatmap_integrals(cls,list_of_annotations):
+        """  
+        Takes a list of annotations as an input and displays all the rations as a heatmap
+        """
+
+        # Extrac x,y values and group as tuples
+
+        x = [annotation["x"] for annotation in list_of_annotations]
+        y = [annotation["y"] for annotation in list_of_annotations]
+        integrals = [float(annotation["text"].split(":")[1]) for annotation in list_of_annotations]
+    
+
+        ratios = []
+        for i in range(len(integrals)):
+            for j in range(len(integrals)):
+                ratio = integrals[i]/integrals[j]
+                ratios.append((x[i],x[j],ratio))
+
+        ratios_df = pd.DataFrame(
+            ratios,
+            columns = ["Peak 1","Peak 2","Ratio"]
+        )
+
+        # Setup color scale
+
+        heatmap = alt.Chart(ratios_df).mark_rect().encode(
+            x = alt.X("Peak 1:O", title="Peak 1 Wavenumber"),
+            y = alt.Y("Peak 2:O", title="Peak 2 Wavenumber"),
+            color = alt.Color("Ratio:Q", scale=alt.Scale(scheme="greenblue"), legend=alt.Legend(title="Ratio")),
+            tooltip = ["Peak 1","Peak 2","Ratio"]
+        ).properties(
+            title="Peak Ratios",
+            width = 600,
+            height = 400
+        )
+
+        text = heatmap.mark_text(baseline="middle").encode(
+            text=alt.Text("Ratio:Q", format=".2f"),
+            color=alt.condition(
+                alt.datum.Ratio == 1,
+                alt.value("red"),
+                alt.value("black")
+            )
+        )
+
+        heatmap = heatmap + text
+
+
+        return heatmap
+
+
+        
 
     def fit_gaussian(self,peak, broadness=10):
         """
@@ -1228,11 +1389,34 @@ class Deconvolution:
         Calculates the Integral of the Fits
         """
 
+
         integrals = []
-        for fit in self.fits:
+        annotations = []
+
+        for i, fit in enumerate(self.fits):
             integral = np.abs(np.trapz(fit,self.spectrum.data[:,0]))
             integrals.append(integral)
 
-        return integrals
+            # Annotate the Peak
+
+            peak_x = self.spectrum.data[self.peaks[i],0]
+            peak_y = self.spectrum.data[self.peaks[i],1]
+
+            # Also add the Name of the Spectrum
+
+            annotation = {
+                "x": str(peak_x) + " cm-1 "  + self.spectrum.name,
+                "y": str(peak_y) + " cm-1 " + self.spectrum.name,
+                "text": f"Integral: {integral:.5f}"
+            }
+
+            annotations.append(annotation)
+
+        # Create the DataFrame for the annotations
+
+        return integrals, annotations
+    
+    
+
 
     

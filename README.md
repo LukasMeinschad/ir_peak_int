@@ -1,5 +1,3 @@
 # ir_peak_int
 
-Hello World
-
-Some tools for peak integration in python
+A python package containing multiple tools for the analysis of FT_IR spectra.
