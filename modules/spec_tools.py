@@ -201,7 +201,7 @@ class Spectrum:
         ).transform_aggregate(
             integral="sum(y)"
         ).encode(
-            text=alt.Text("integral:Q", format=".2f")
+            text=alt.Text("integral:Q", format=".4f")
         )
 
         # combine the charts
@@ -649,7 +649,7 @@ class Spectrum:
             annotation = alt.Chart(pd.DataFrame({
                 "x":[x_min + (x_max - x_min)/2],
                 "y": [data_plot["y"].max()],
-                "text": [f"Integral: {integral:.2f}"]
+                "text": [f"Integral: {integral:.4f}"]
             })).mark_text(align="center", baseline="bottom", fontSize=12).encode(                                 
                 x="x:Q",
                 y="y:Q",
@@ -886,6 +886,11 @@ class Baseline:
         combined = chart + chart_smooth
 
         return combined 
+
+# Here write the Noise reduction Class
+
+
+
 
 
 
@@ -1188,6 +1193,24 @@ class Deconvolution:
         """
         return amplitude * np.exp(-((x-mean)**2)/(2*stddev**2))
     
+    @classmethod
+
+    def poly_gaussian(cls,x,max_height,x_mean,stdev,m):
+        """
+        Fitting Function for a Polynomially Modified Gaussian (PMG)
+        
+        https://doi.org/10.1016/j.aca.2012.10.035
+
+        Attributes:
+            x: x data
+            max_height: maximum height of the peak
+            mean: mean of the peak
+            stdex_v: standard deviation of the peak
+            m: polynomial order
+        """
+
+        return max_height * np.exp(-0.5 * ((x-x_mean)**2)/((stdev + m * (x - x_mean))**2))
+    
 
     @classmethod
     def barplot_integrals(cls, list_of_annotations):
@@ -1304,6 +1327,56 @@ class Deconvolution:
         popt, _ = curve_fit(self.gaussian,x_peak,y_peak,p0=[y[peak],x[peak],1])
 
         return popt
+    
+    def fit_poly_gaussian(self,peak, broadness=10, m=1):
+        """
+        Fits the Polynomially Modified Gaussian to a given peak
+
+        Attributes:
+            peak: Peak index
+            broadness: Broadness of the peak
+            m: Model Parameter for skewness
+        """
+
+        x = self.spectrum.data[:,0]
+        y = self.spectrum.data[:,1]
+
+        # peak is given as index and add broadness as interval
+
+        peak_interval = np.arange(peak-broadness,peak+broadness)
+
+
+        # Select interval from data
+
+        x_peak = x[peak_interval]
+        y_peak = y[peak_interval]
+
+        # Fit the Polynomially Modified Gaussian
+
+        popt, _ = curve_fit(self.poly_gaussian,x_peak,y_peak,p0=[y[peak],x[peak],1,m])
+
+        return popt
+    
+    def plot_poly_gaussian_fit(self,peak, broadness=10, m=1):
+        """
+        Helper Function that plots the polynomially modified gaussian fit
+        """
+
+        x = self.spectrum.data[:,0]
+        y = self.spectrum.data[:,1]
+
+        popt = self.fit_poly_gaussian(peak,broadness,m)
+
+        fit = self.poly_gaussian(x,*popt)
+
+        plt.plot(x,y, label="Spectrum", color="black")
+        plt.plot(x,fit, label="Poly Gaussian Fit", color="red")
+        plt.gca().invert_xaxis()
+        plt.legend()
+        plt.show()
+
+
+
 
     def plot_gaussian_fit(self,peak, broadness=10):
         """
@@ -1383,6 +1456,83 @@ class Deconvolution:
         self.fits = fits
 
         return chart
+    
+    def fit_multiple_poly_gaussians_and_plot(self, broadness=10, ls_of_m=[1]):
+        """
+        General Function to Fit all the Peaks of the Deconvolution Object using Polynomially Modified Gaussians
+
+        Attr:
+            broadness: Broadness of the peaks
+            list_of_m: List of model parameters for the skewness
+
+        Note That the Model Parameters M can be used for assymetric peaks
+        """
+
+        x = self.spectrum.data[:,0]
+        y = self.spectrum.data[:,1]
+
+        # Create the Fits
+
+        fits = []
+
+        fit_labels = []
+
+        for i, peak in enumerate(self.peaks):
+            for m in ls_of_m:
+                popt = self.fit_poly_gaussian(peak,broadness,m)
+                fit = self.poly_gaussian(x,*popt)
+                fits.append(fit)
+                fit_labels.append(f"Fit {i+1} m={m}")
+
+        # Now make an Altair chart and plot all the fits
+
+        data = pd.DataFrame({"x": x, "y": y})
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title="Spectrum",
+            width=800,
+            height=400
+        )
+
+        # Create Selection
+
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+
+        chart = chart.add_selection(selection)
+
+        # Create a color for each fit
+
+        colors = ["red", "blue", "green", "orange", "purple", "brown", "pink", "grey", "yellow", "cyan"]
+
+        # Create a DataFrame for the fits
+
+        fits_data = pd.DataFrame({"x": np.tile(x, len(fits)), "y": np.concatenate(fits), "fit": np.repeat(fit_labels, len(x) )})
+
+        # Create the chart for the fits
+
+        chart_fits = alt.Chart(fits_data).mark_line().encode(
+            x="x",
+            y="y",
+            color=alt.Color("fit:N", scale=alt.Scale(range=colors), legend=alt.Legend(title="Fits"))
+        )
+
+        # Combine the charts
+
+        chart = chart + chart_fits
+
+        # Add fits to object
+
+        self.fits = fits
+
+        return chart
+
+
 
     def calculate_integral_of_fits(self):
         """
