@@ -41,7 +41,183 @@ class Spectrum:
         self.name = name
         self.data = data
 
-    
+        # Add annotation dictionary
+        self.annotations = {}
+
+    def import_vci_prediction(self,molpro_out_filepath):
+        """
+        Imports the VCI prediction from a molpto input file
+        
+        Parameters:
+            molpro_out_filepath (str): Filepath of the molpro output file
+        """
+
+        with open(molpro_out_filepath,"r") as file:
+            lines = file.readlines()
+
+            # Find start of VCI Calculation
+
+            Filter_Start = "Results of VCI calculation" 
+            Filter_End = "VCI/ZPVE vibrationally averaged"
+
+            # Build extraction switch
+            start = False
+
+            # Extract the VCI Calculation
+
+            VCI_Results_total = []
+            for line in lines:
+                if Filter_Start in line:
+                    start = True
+                    continue
+                if Filter_End in line:
+                    start = False
+                if start:
+                    VCI_Results_total.append(line)
+
+            # Extract the Fundamentals
+
+            Filter_Start = "Fundamentals"
+            Filter_End = "Overtones" 
+
+
+            # Next extraction switch
+            start = False         
+            VCI_Results_fundamentals = []
+
+            for line in VCI_Results_total:
+                if Filter_Start in line:
+                    start = True
+                    continue
+                if Filter_End in line:
+                    start = False
+                if start:
+                    VCI_Results_fundamentals.append(line)
+
+            # Remove all blank lines
+            VCI_Results_fundamentals = [line for line in VCI_Results_fundamentals if line.strip()]
+
+            # Remove Header Line
+
+            VCI_Results_fundamentals = VCI_Results_fundamentals[1:] 
+
+            # We only extract assigned modes these can be found by searching for ^ symbol
+
+            VCI_Results_fundamentals = [line for line in VCI_Results_fundamentals if "^" in line]
+
+            fundamental_annotation_dict = {}
+
+            for line in VCI_Results_fundamentals:
+                line = line.split()
+                # for each line entry in dictionary
+                # First element is the mode
+                mode = line[0]
+                #Build up dictionary of the rest of the entries
+                mulliken = line[1]
+                E_abs = line[2]
+                VCI_freq = line[3]
+                IR_intensity = line[4]
+                annotation = {
+                    "Symmetry":mulliken, 
+                    "E_abs":E_abs, 
+                    "VCI_freq":VCI_freq, 
+                    "IR_intensity":IR_intensity
+                }
+                
+                # Add to fundamentals dict
+                fundamental_annotation_dict[mode] = annotation
+
+            # Make Annotation Dictionary
+
+            self.annotations["fundamentals"] = fundamental_annotation_dict
+
+
+            # Next the overtones
+
+            Filter_Start = "Overtones"
+            Filter_End = "Combination Bands"
+            start = False
+            VCI_Results_overtones = []
+
+            for line in VCI_Results_total:
+                if Filter_Start in line:
+                    start = True
+                    continue
+                if Filter_End in line:
+                    start = False
+                if start:
+                    VCI_Results_overtones.append(line)
+            
+            # Remove Blank lines and header
+            VCI_Results_overtones = [line for line in VCI_Results_overtones if line.strip()]
+            VCI_Results_overtones = VCI_Results_overtones[1:]
+            # We only extract assigned modes these can be found by searching for ^ symbol
+            VCI_Results_overtones = [line for line in VCI_Results_overtones if "^" in line]
+            # Exclute lines that start with "Multi"
+            VCI_Results_overtones = [line for line in VCI_Results_overtones if "Multi" not in line] 
+
+            overtone_annotation_dict = {}
+
+            for line in VCI_Results_overtones: 
+                line = line.split()
+                mode = line[0]
+                mulliken = line[1]
+                E_abs = line[2]
+                VCI_freq = line[3]
+                IR_intensity = line[4]
+                annotation = {
+                    "Symmetry":mulliken, 
+                    "E_abs":E_abs, 
+                    "VCI_freq":VCI_freq, 
+                    "IR_intensity":IR_intensity
+                }
+                overtone_annotation_dict[mode] = annotation
+        
+            self.annotations["overtones"] = overtone_annotation_dict
+
+            # Combination bands
+
+            Filter_Start = "Combination bands"
+            Filter_End = "VCI/ZPVE vibrationally averaged"
+            start = False
+            VCI_Results_combinations = []
+
+            for line in VCI_Results_total:
+                if Filter_Start in line:
+                    start = True
+                    continue
+                if Filter_End in line:
+                    start = False
+                if start:
+                    VCI_Results_combinations.append(line)
+
+            # Remove Blank lines and header
+            VCI_Results_combinations = [line for line in VCI_Results_combinations if line.strip()]
+            VCI_Results_combinations = VCI_Results_combinations[1:]
+            # We only extract assigned modes these can be found by searching for ^ symbol
+            VCI_Results_combinations = [line for line in VCI_Results_combinations if "^" in line]
+ 
+            combination_annotation_dict = {}
+
+            for line in VCI_Results_combinations:
+                # Note here we have always the Combinations
+                line = line.split()
+                comb = str(line[0]) + "-" + str(line[1])
+                mulliken = line[2]
+                E_abs = line[3]
+                VCI_freq = line[4]
+                IR_intensity = line[5]
+                annotation = {
+                    "Symmetry":mulliken, 
+                    "E_abs":E_abs, 
+                    "VCI_freq":VCI_freq, 
+                    "IR_intensity":IR_intensity
+                }
+                combination_annotation_dict[comb] = annotation
+
+            self.annotations["combinations"] = combination_annotation_dict
+
+
 
     @classmethod
     def from_csv(cls,filepath,sep,comma,header=None):
@@ -101,6 +277,70 @@ class Spectrum:
         
 
         return peaks
+
+    def plot_spectrum_with_vci_annotations(self,title="None",mode=0):
+        """
+        Plots the spectrum with the given VCI annotations
+
+        Mode: 
+            0 - just fundamentals
+            1 - fundamentals + overtones
+            2 - fundamentals + overtones + combination bands
+        """
+
+        alt.data_transformers.disable_max_rows()
+
+        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title=title,
+            width = 800,
+            height = 400
+        )
+        # Create Selection
+        selection = alt.selection_interval(bind="scales")
+        
+        # Add selection to chart
+        chart = chart.add_selection(selection)
+
+
+        # Add the annotations
+        annotations = []
+        annotations_data = []
+        if mode >= 0:
+           annotations_data = pd.DataFrame([(key, value["VCI_freq"], value["IR_intensity"], value["Symmetry"]) for key, value in self.annotations["fundamentals"].items()], columns=["mode","VCI_freq","IR_intensity","Symmetry"])
+
+
+        annotations_data["text"] = annotations_data.apply(
+            lambda row: f"Mode: {row['mode']}, Freq: {row['VCI_freq']}, \n Sym: {row['Symmetry']}", axis=1
+        )
+
+        # Add vertical lines for annotations
+
+        lines = alt.Chart(annotations_data).mark_rule(color="red").encode(
+            x="VCI_freq:Q"
+        )
+
+        # Add text annotations
+        text = alt.Chart(annotations_data).mark_text(
+            align="left",
+            baseline="middle",
+            dx = 5,
+            dy = -5,
+
+        ).encode(
+            x="VCI_freq:Q", 
+            text=alt.Text("text:N")
+        )
+
+        
+        combined = chart + lines + text
+
+        return combined
 
 
     def plot_spectrum_with_peaks(self,peaks,title=None):
@@ -1565,8 +1805,71 @@ class Deconvolution:
         # Create the DataFrame for the annotations
 
         return integrals, annotations
-    
-    
 
 
+    @staticmethod
+    def deconvolution_function(mode="Gaussian", FWHM=1.0):
+        """
+        Makes a deconvolution function of a certain type.
+        """
+        if mode == "Gaussian":
+            sigma = FWHM / (2 * np.sqrt(2 * np.log(2))) 
+            def gaussian(x):
+                b = 1/(sigma * np.sqrt(2*np.pi))*np.exp(-0.5*((x-np.mean(x))/sigma)**2)
+                N = len(b)
+                b_shifted = np.roll(b, N//2)
+                return b_shifted
+            
+            return gaussian
+
+    # This shit doesnt work
+    @classmethod
+    def mixed_gaussian_lorentzian(cls,x,beta, m=0.5, M=0.5):
+        """
+        Initializes a mixed gaussian lorentzian function for fitting the peaks
+        
+        Attributes:
+            x: x data 
+            beta: full width at half maximum
+            m: mixing parameter m=0 pure lorentzian, m=1 pure gaussian
+            M: sampling interval
+        """
+
+        M_samp = np.mean(x) + M
+
+        # Initialize Gaussian
+        gaussian_prefactor = (2*m*np.sqrt(np.log(2)))/(beta*np.sqrt(np.pi))
+        gaussian_exp = np.exp(-4*np.log(2)*((x-M_samp)/(beta))**2)
+        gaussian_part = gaussian_prefactor * gaussian_exp 
+
+        # Initialíze Lorentian
+        lorentzian_part = (2*(1-m)/(beta*np.pi*(1+4*((x-M_samp)/beta)**2)))
+
+        return gaussian_part + lorentzian_part
+
+    def fit_mixed_gaussian_lorentzian(self,peak,broadness=10,m=0.5,M=0.5):
+        """
+        Fits a mixed gaussian lorentzian model using using curve_fit and a predefined
+        mixture
+        """
+
+        x = self.spectrum.data[:,0]
+        y = self.spectrum.data[:,1]
+
+        peak_interval = np.arange(peak-broadness,peak+broadness)
+
+        x_peak = x[peak_interval]
+        y_peak = y[peak_interval]
+
+
+        # Fit all parameters
+        popt, _ = curve_fit(self.mixed_gaussian_lorentzian,x_peak,y_peak,p0=[1,m,M]) 
+
+        plt.plot(x,y, label="Spectrum", color="black")
+        plt.plot(x,self.mixed_gaussian_lorentzian(x,*popt), label="Mixed Gaussian Lorentzian Fit", color="red")
+        plt.gca().invert_xaxis()
+        plt.legend()
+        plt.show()
+        return popt
+    
     
