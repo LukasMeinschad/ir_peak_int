@@ -6,6 +6,8 @@ from scipy.signal import find_peaks
 import altair as alt
 from pybaselines import Baseline as Baseline_fit
 
+
+
 # Importing the necessary packages for the deconvolution
 from scipy.optimize import curve_fit
 
@@ -13,6 +15,23 @@ from scipy.signal import savgol_filter
 
 
 # General Functions
+
+def convert_subscript_superscript(text, is_superscript=True):
+    """ 
+    Helper Function to convert subscripts and superscripts
+    """
+    normal_chars = "0123456789"
+    superscript_chars = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+    subscript_chars = "₀₁₂₃₄₅₆₇₈₉"
+
+    if is_superscript:
+        mapping = str.maketrans(normal_chars,superscript_chars)
+    else:
+        mapping = str.maketrans(normal_chars, subscript_chars)
+    converted_text = text.translate(mapping)
+    return converted_text
+
+
 
 def ratios_of_integrals(integrals,reference):
     """
@@ -112,7 +131,22 @@ class Spectrum:
                 # for each line entry in dictionary
                 # First element is the mode
                 mode = line[0]
-                #Build up dictionary of the rest of the entries
+
+                # Transform mode into wavefunction representation
+                # |\nu_4^1> and so on
+               
+                # Fundamentals are easy always one symbol
+                split_mode = mode.split("^")
+
+                # convert first letter to subscript
+                subscript = convert_subscript_superscript(split_mode[0], is_superscript=False)
+                superscript = convert_subscript_superscript(split_mode[1])
+
+                # Build String
+                mode_string = "|" + "\u03bd" + subscript + superscript + ">"
+
+
+
                 mulliken = line[1]
                 E_abs = line[2]
                 VCI_freq = line[3]
@@ -125,7 +159,7 @@ class Spectrum:
                 }
                 
                 # Add to fundamentals dict
-                fundamental_annotation_dict[mode] = annotation
+                fundamental_annotation_dict[mode_string] = annotation
 
             # Make Annotation Dictionary
 
@@ -161,6 +195,18 @@ class Spectrum:
             for line in VCI_Results_overtones: 
                 line = line.split()
                 mode = line[0]
+
+                split_mode = mode.split("^")
+
+                # convert first letter to subscript
+                subscript = convert_subscript_superscript(split_mode[0], is_superscript=False)
+                superscript = convert_subscript_superscript(split_mode[1])
+
+                # Build String
+
+                mode_string = "|" + "\u03bd" + subscript + superscript + ">"
+
+
                 mulliken = line[1]
                 E_abs = line[2]
                 VCI_freq = line[3]
@@ -171,7 +217,7 @@ class Spectrum:
                     "VCI_freq":VCI_freq, 
                     "IR_intensity":IR_intensity
                 }
-                overtone_annotation_dict[mode] = annotation
+                overtone_annotation_dict[mode_string] = annotation
         
             self.annotations["overtones"] = overtone_annotation_dict
 
@@ -203,6 +249,24 @@ class Spectrum:
                 # Note here we have always the Combinations
                 line = line.split()
                 comb = str(line[0]) + "-" + str(line[1])
+                
+                # split comb string
+
+                split_comb = comb.split("-")
+
+                wf = []
+                for s in split_comb:
+                    s_split = s.split("^")
+
+                    # convert first letter to subscript
+                    subscript = convert_subscript_superscript(s_split[0], is_superscript=False)
+                    superscript = convert_subscript_superscript(s_split[1])
+                    # build intermediate
+                    wf.append("\u03bd" + subscript + superscript)
+                
+                # Build String
+                comb_string = "|" + wf[0] + wf[1] + ">"
+
                 mulliken = line[2]
                 E_abs = line[3]
                 VCI_freq = line[4]
@@ -213,7 +277,7 @@ class Spectrum:
                     "VCI_freq":VCI_freq, 
                     "IR_intensity":IR_intensity
                 }
-                combination_annotation_dict[comb] = annotation
+                combination_annotation_dict[comb_string] = annotation
 
             self.annotations["combinations"] = combination_annotation_dict
 
@@ -277,6 +341,123 @@ class Spectrum:
         
 
         return peaks
+    
+    @classmethod
+    def initialize_annotation_dict(cls,mode="chemist_not"):
+        """
+        Initializes a empty notation dictionary which can be filled by the user
+
+        mode = chemist_not (chemist's notation based on the principal motion pattern)
+
+        mode = spectro (spectroscopist's notation based on the molecular point group)
+
+        mode = physicist (notation carrying quantum mechanical information)
+        """
+
+        chemist_notation = {
+           "stretching": "\u03bd",
+           "bending": "\u03b4",
+           "rocking": "\u03c1",
+           "wagging": "\u03a9",
+           "twisting": "\u03c4" 
+        }
+
+        mode = input("Please enter the mode of the annotation dictionary: chemist_not, spectro, physicist")
+        if mode == "chemist_not":
+            vib_type = input("Please enter the type of vibration: \n "  +
+                                "stretching, bending, rocking, wagging, twisting")
+            if vib_type in chemist_notation.keys():
+                vib_type = chemist_notation[vib_type]
+                annotation = {
+                    "vib_type": vib_type,
+                    "freq": None,
+                    "group": None,
+                    "description": None
+                }
+            else:
+                print("Invalid Vibration Type")
+                return None
+            
+
+        return annotation
+
+    def clear_annotations(self):
+        """
+        Clears the current annotations from the object
+        """
+
+        self.annotations = {}
+        print("Current annotations cleared")
+
+    def add_annotation(self,annotation, num=1):
+        """
+        Adds one of the three standardized annotations to the spectrum object
+        
+        Parameters:
+
+
+        """
+        
+        # Check if annotations are already present
+        if not self.annotations:
+            self.annotations = {}
+
+
+        self.annotations[num] = annotation
+        print("Annotation added to spectrum object")
+
+    def plot_annotations_user(self):
+        """
+        Plots all current user defined annotations into the spectrum
+        """
+
+        alt.data_transformers.disable_max_rows()
+
+        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        ).properties(
+            title="Spectrum of " + self.name,
+            width = 800,
+            height = 400
+        )
+
+        # Create Selection
+        selection = alt.selection_interval(bind="scales")
+
+        # Add selection to chart
+        chart = chart.add_selection(selection)
+
+        # Make vertical lines for each annotation
+
+        annotations = []
+        for key, value in self.annotations.items():
+            if value["freq"]:
+                annotations.append(alt.Chart(pd.DataFrame({"x":[value["freq"]]})).mark_rule(color="red",strokeDash=[5,5]).encode(
+                    x="x"
+                ))
+        
+        # Add vib_type and group as text
+
+        annotations_text = []
+        for key, value in self.annotations.items():
+            if value["freq"]:
+                annotations_text.append(alt.Chart(pd.DataFrame({"x":[value["freq"]], "vib": [value["vib_type"] + value["group"]]})).mark_text(align="left", baseline="middle", dx=7, dy=-7, fontSize=14).encode(
+                    x="x",
+                    # Add the vib_type and group as text
+                    text=alt.Text("vib:N")
+                ))
+
+
+        chart = chart + alt.layer(*annotations) + alt.layer(*annotations_text)
+
+        return chart
+        
+
+
 
     def plot_spectrum_with_vci_annotations(self,title="None",mode=0):
         """
@@ -339,22 +520,22 @@ class Spectrum:
     
 
         
-        lines_fund = alt.Chart(annotations_data_fundamentals).mark_rule(color="red").encode(
+        lines_fund = alt.Chart(annotations_data_fundamentals).mark_rule(color="red",strokeDash=[5,5]).encode(
             x="VCI_freq:Q"
         )
 
         if mode == 1:
-            lines_overtones = alt.Chart(annotations_data_overtones).mark_rule(color="blue").encode(
+            lines_overtones = alt.Chart(annotations_data_overtones).mark_rule(color="blue",strokeDash=[5,5]).encode(
                 x="VCI_freq:Q"
             )
             lines = lines_fund + lines_overtones
 
         if mode == 2:
-            lines_overtones = alt.Chart(annotations_data_overtones).mark_rule(color="blue").encode(
+            lines_overtones = alt.Chart(annotations_data_overtones).mark_rule(color="blue",strokeDash=[5,5]).encode(
                 x="VCI_freq:Q"
             )
 
-            lines_combinations = alt.Chart(annotations_data_combinations).mark_rule(color="green").encode(
+            lines_combinations = alt.Chart(annotations_data_combinations).mark_rule(color="green",strokeDash=[5,5]).encode(
                 x="VCI_freq:Q"
             )
             lines = lines_fund + lines_overtones + lines_combinations
@@ -363,8 +544,8 @@ class Spectrum:
         text_fund = alt.Chart(annotations_data_fundamentals).mark_text(
             align="left",
             baseline="middle",
-            dx = 5,
-            dy = -5,
+            dx = 10,
+            dy = -20,
 
         ).encode(
             x="VCI_freq:Q", 
@@ -388,8 +569,8 @@ class Spectrum:
             text_overtones = alt.Chart(annotations_data_overtones).mark_text(
                 align="left",
                 baseline="middle",
-                dx = 5,
-                dy = -5,
+                dx = 20,
+                dy = -35,
             ).encode(
                 x="VCI_freq:Q", 
                 text=alt.Text("text:N")
