@@ -293,7 +293,7 @@ class Spectrum:
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
 
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
         ).properties(
@@ -310,23 +310,57 @@ class Spectrum:
 
         # Add the annotations
         annotations = []
-        annotations_data = []
-        if mode >= 0:
-           annotations_data = pd.DataFrame([(key, value["VCI_freq"], value["IR_intensity"], value["Symmetry"]) for key, value in self.annotations["fundamentals"].items()], columns=["mode","VCI_freq","IR_intensity","Symmetry"])
+        annotations_data_fundamentals = []
+        annoations_data_overtones = []
+        annotations_data_combinations = []
+        annotations_data_fundamentals = pd.DataFrame([(key, value["VCI_freq"], value["IR_intensity"], value["Symmetry"]) for key, value in self.annotations["fundamentals"].items()], columns=["mode","VCI_freq","IR_intensity","Symmetry"])
 
-
-        annotations_data["text"] = annotations_data.apply(
+        annotations_data_fundamentals["text"] = annotations_data_fundamentals.apply(
             lambda row: f"Mode: {row['mode']}, Freq: {row['VCI_freq']}, \n Sym: {row['Symmetry']}", axis=1
         )
 
-        # Add vertical lines for annotations
+        # if mode == 1 import overtones
+        if mode == 1:
+            annotations_data_overtones = pd.DataFrame([(key, value["VCI_freq"], value["IR_intensity"], value["Symmetry"]) for key, value in self.annotations["overtones"].items()], columns=["mode","VCI_freq","IR_intensity","Symmetry"])
+            annotations_data_overtones["text"] = annotations_data_overtones.apply(
+                lambda row: f"Mode: {row['mode']}, Freq: {row['VCI_freq']}, \n Sym: {row['Symmetry']}", axis=1
+            )
+        
+        if mode == 2:
+            annotations_data_overtones = pd.DataFrame([(key, value["VCI_freq"], value["IR_intensity"], value["Symmetry"]) for key, value in self.annotations["overtones"].items()], columns=["mode","VCI_freq","IR_intensity","Symmetry"])
+            annotations_data_overtones["text"] = annotations_data_overtones.apply(
+                lambda row: f"Mode: {row['mode']}, Freq: {row['VCI_freq']}, \n Sym: {row['Symmetry']}", axis=1
+            )
+            annotations_data_combinations = pd.DataFrame([(key, value["VCI_freq"], value["IR_intensity"], value["Symmetry"]) for key, value in self.annotations["combinations"].items()], columns=["mode","VCI_freq","IR_intensity","Symmetry"])
+            annotations_data_combinations["text"] = annotations_data_combinations.apply(
+                lambda row: f"Mode: {row['mode']}, Freq: {row['VCI_freq']}, \n Sym: {row['Symmetry']}", axis=1
+            )
 
-        lines = alt.Chart(annotations_data).mark_rule(color="red").encode(
+    
+
+        
+        lines_fund = alt.Chart(annotations_data_fundamentals).mark_rule(color="red").encode(
             x="VCI_freq:Q"
         )
 
-        # Add text annotations
-        text = alt.Chart(annotations_data).mark_text(
+        if mode == 1:
+            lines_overtones = alt.Chart(annotations_data_overtones).mark_rule(color="blue").encode(
+                x="VCI_freq:Q"
+            )
+            lines = lines_fund + lines_overtones
+
+        if mode == 2:
+            lines_overtones = alt.Chart(annotations_data_overtones).mark_rule(color="blue").encode(
+                x="VCI_freq:Q"
+            )
+
+            lines_combinations = alt.Chart(annotations_data_combinations).mark_rule(color="green").encode(
+                x="VCI_freq:Q"
+            )
+            lines = lines_fund + lines_overtones + lines_combinations
+
+        
+        text_fund = alt.Chart(annotations_data_fundamentals).mark_text(
             align="left",
             baseline="middle",
             dx = 5,
@@ -337,7 +371,43 @@ class Spectrum:
             text=alt.Text("text:N")
         )
 
+        if mode == 1:
+            text_overtones = alt.Chart(annotations_data_overtones).mark_text(
+                align="left",
+                baseline="middle",
+                dx = 5,
+                dy = -5,
+            ).encode(
+                x="VCI_freq:Q", 
+                text=alt.Text("text:N")
+            )
+
+            text = text_fund + text_overtones
         
+        if mode == 2:
+            text_overtones = alt.Chart(annotations_data_overtones).mark_text(
+                align="left",
+                baseline="middle",
+                dx = 5,
+                dy = -5,
+            ).encode(
+                x="VCI_freq:Q", 
+                text=alt.Text("text:N")
+            )
+
+            text_combinations = alt.Chart(annotations_data_combinations).mark_text(
+                align="left",
+                baseline="middle",
+                dx = 5,
+                dy = -5,
+            ).encode(
+                x="VCI_freq:Q", 
+                text=alt.Text("text:N")
+            )
+
+            text = text_fund + text_overtones + text_combinations
+
+
         combined = chart + lines + text
 
         return combined
@@ -360,7 +430,7 @@ class Spectrum:
 
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
         ).properties(
@@ -404,7 +474,7 @@ class Spectrum:
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
 
         base = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
         )
@@ -441,8 +511,10 @@ class Spectrum:
         ).transform_aggregate(
             integral="sum(y)"
         ).encode(
+
             text=alt.Text("integral:Q", format=".4f")
         )
+
 
         # combine the charts
 
@@ -472,7 +544,7 @@ class Spectrum:
 
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
         ).properties(
@@ -506,7 +578,7 @@ class Spectrum:
         data = pd.DataFrame(data, columns=["x","y"])
 
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="First Derivative of Intensity"),
             color=alt.value("red")
         ).properties(
@@ -546,7 +618,7 @@ class Spectrum:
 
 
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
         ).properties(
@@ -589,7 +661,7 @@ class Spectrum:
         # Create the chart
 
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
         ).properties(
@@ -860,7 +932,7 @@ class Spectrum:
             data_plot = pd.DataFrame(data_window[:,0:2], columns=["x","y"])
 
             chart = alt.Chart(data_plot).mark_area().encode(
-                x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+                x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
                 y=alt.Y("y", title="Intensity"),
                 color=alt.value("black")
             ).properties(
