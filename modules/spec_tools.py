@@ -906,7 +906,7 @@ class Spectrum:
 
         # Create the chart
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
         ).properties(
@@ -985,7 +985,7 @@ class Spectrum:
 
         data_plot = pd.DataFrame(data_plot[:,0:2], columns=["x","y"])
         chart = alt.Chart(data_plot).mark_area().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
         ).properties(
@@ -1058,7 +1058,7 @@ class Spectrum:
             data_df = pd.DataFrame(data_window[:,0:2], columns=["x","y"])
 
             chart = alt.Chart(data_df).mark_line().encode(
-                x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+                x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
                 y=alt.Y("y", title="Intensity"),
                 color=alt.value("black")
             ).properties(
@@ -1227,6 +1227,21 @@ class Baseline:
 
         return fit,params
 
+
+    def fit_baseline_irsqs(self,lam,knots,degree,max_iter):
+        """
+        Performs IRSQR Spline baseline fitting
+        """
+
+        y = self.spectrum.data[:,1]
+
+        baseline_fitter = Baseline_fit(self.spectrum.data[:,0])
+
+        fit,params = baseline_fitter.irsqr(y, lam=lam, num_knots=knots, spline_degree=degree, max_iter=max_iter)
+
+        self.baseline = fit
+
+        return fit,params
     
     def fit_baseline_poly(self,p):
         """
@@ -1277,7 +1292,7 @@ class Baseline:
         # Create the chart
 
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
         ).properties(
@@ -1913,7 +1928,7 @@ class Deconvolution:
         data = pd.DataFrame({"x": x, "y": y})
 
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
             y=alt.Y("y", title="Intensity"),
             color=alt.value("black")
         ).properties(
