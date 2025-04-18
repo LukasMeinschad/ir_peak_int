@@ -5,6 +5,13 @@ from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 import altair as alt
 from pybaselines import Baseline as Baseline_fit
+import py3Dmol
+
+
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from rdkit.Chem import rdMolTransforms
+
 
 
 
@@ -46,6 +53,192 @@ def ratios_of_integrals(integrals,reference):
         ratios.append(ratio)
     return ratios
 
+def remove_numeration_atoms(ls):
+    """
+    Removes the enumeration of a list of atoms
+
+    ["H1","H2"] -> ["H","H"]
+    """
+    new_list = []
+    for atom in ls:
+        if atom[-1].isdigit():
+            new_list.append(atom[:-1])
+        else:
+            new_list.append(atom)
+    return np.array(new_list)
+
+
+class Molecule:
+    def __init__(self,name,coords,atoms):
+        """ 
+        Initializes an object of the molecule class
+        """
+
+        self.name = name
+        self.coords = coords
+        self.atoms = atoms
+        self.mol = None
+
+    def atom_coords_to_mol(self,bond_thresholds=None):
+        """ 
+        Creates a RDKit molecule from lsits of atoms and coordinates
+
+        Args:
+            atoms (list): List of atoms
+            coords (list): List of coordinates
+
+        Returns:
+            RDKit molecule object
+        """
+
+        mol = Chem.RWMol()
+
+        # Add atoms to the molecule
+
+        atom_list = remove_numeration_atoms(self.atoms)
+       
+        for atom in atom_list:
+            atom = Chem.Atom(atom)
+            mol.AddAtom(atom)
+ 
+
+        # Add coordinates to the molecule
+        conf = Chem.Conformer(len(atom_list))
+        for i, (x,y,z) in enumerate(self.coords):
+            conf.SetAtomPosition(i, (x,y,z))
+
+        
+        # Default bond threshholds for common pairs
+        if bond_thresholds is None:
+            bond_thresholds = {
+                ("C","C"): 1.7,
+                ("C","O"): 1.5,
+                ("C","N"): 1.5,
+                ("C","H"): 1.1,
+                ("O","O"): 1.5,
+                ("O","N"): 1.5,
+                ("N","N"): 1.5,
+                ("H","H"): 1.0  
+            }
+        # Add bonds to the molecule
+        for i in range(mol.GetNumAtoms()):
+            for j in range(i+1, mol.GetNumAtoms()):
+                # calculate pairwise distance
+                dist = rdMolTransforms.GetBondLength(conf,i,j)
+                print(dist)
+                sym_i = mol.GetAtomWithIdx(i).GetSymbol()
+                sym_j = mol.GetAtomWithIdx(j).GetSymbol()
+
+                # Get Threshold
+                threshold = bond_thresholds.get((sym_i,sym_j)) or \
+                    bond_thresholds.get((sym_j,sym_i))
+                
+                if dist >= threshold:
+                    mol.AddBond(i,j,Chem.rdchem.BondType.SINGLE)
+
+
+
+        # Convert to regular molecule
+        rdmol = mol.GetMol()
+        rdmol.AddConformer(conf)
+
+    
+
+                               
+
+        self.mol = rdmol
+
+    @staticmethod
+    def visualize_plane_of_symmetry(viewer, origin=(0,0,0), normal=(1,0,0), size=10, color="gray"):
+
+        # Create Plane Geometry
+        x,y,z = origin
+        nx,ny,nz = normal
+
+        plane_geom = {
+            "color" : color,
+            "opacity": 0.5,
+            "vertices": [
+                [x - size, y - size,z],
+                [x + size, y-size, z],
+                [x + size, y + size,z],
+                [x - size, y + size,z]
+            ],
+            "faces": [[0,1,2,3]]
+        }
+
+        viewer.addModel(str(plane_geom), "json")
+        viewer.setStyle({"model": -1}, {"line": {}})
+    
+    
+    @classmethod
+    def visualize_mol_3d(cls, mol, size=(400,400), style="stick"):
+        
+        pdb_block = Chem.MolToPDBBlock(mol)
+        print(pdb_block)
+
+        viewer = py3Dmol.view(width=size[0], height=size[1])
+
+        viewer.addModel(pdb_block, "pdb")
+        viewer.setStyle({"stick": {"radius":0.1}, "sphere": {"radius": 0.3}})
+    
+        viewer.zoomTo()
+        viewer.spin(1)
+
+        return viewer.show()
+
+    @classmethod
+    def import_molecule_molpro(cls,filepath):
+        """
+        Imports a molecule from a molpro output file
+        """
+
+        with open(filepath,"r") as file:
+            lines = file.readlines()
+
+
+            # Find start of geometry
+
+            Filter_Start = "Atomic Coordinates"
+
+            Filter_End = "Gradient norm at"
+
+            start = False
+
+            # Extract the geometry
+            geometry_total = []
+
+            for line in lines:
+                if Filter_Start in line:
+                    start = True
+                    continue
+                if Filter_End in line:
+                    start = False
+                if start:
+                    geometry_total.append(line)
+            
+            # Remove all blank lines
+            geometry_total = [line for line in geometry_total if line.strip()]
+
+            # First line then is the header
+            geometry_total = geometry_total[1:]
+            
+
+            # Now we can extract the coordinates
+            coords = []
+            atoms = []
+            for line in geometry_total:
+                line = line.split()
+                atoms.append(line[1])
+                coords.append([float(line[3]),float(line[4]),float(line[5])])
+
+            coords = np.array(coords)
+            atoms = np.array(atoms)
+
+            # Create the molecule object
+            return cls(filepath,coords,atoms) 
+
+     
 
 class Spectrum:
     def __init__(self,name,data):
@@ -707,27 +900,47 @@ class Spectrum:
         return chart
 
 
-    def plot_spectrum(self,title=None):
+    def plot_spectrum(self,title=None,interactive=True,color="black",legend_title="Legend"):
         """ 
         Plots the spectrum using Altair as a package
         
         Parameters:
             self: The Spectrum object
             title: The title of the plot
-            cols: Further specify which colums should be used
+            interactive: If True, plot is interactive
+            color: Gives the Color of the Data in the Plot
+            legend_title: Title of the Legend in the Plot
         """
+        
         alt.data_transformers.disable_max_rows()
         
         if not title:
             title = "Spectrum of " + self.name
+
         
 
 
+
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
+        
+        data["Legend"]  = self.name
+
+        # Adjust axis scale
+
+        min_x = data["x"].min() - 10
+        max_x = data["x"].max() + 10
+
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
+            x=alt.X("x", 
+                    title="Wave Number / cm⁻¹", 
+                    sort="descending",
+                    axis = alt.Axis(format="0.0f"),
+                    scale=alt.Scale(domain=[min_x,max_x])),
+            
             y=alt.Y("y", title="Intensity"),
-            color=alt.value("black")
+            
+            color = alt.Color("legend:N",legend=alt.Legend(title="Spectrum Name"))
+            #color=alt.value("black"),
         ).properties(
             title=title,
             width = 800,
@@ -735,10 +948,13 @@ class Spectrum:
         )
 
         # Create Selection
-        selection = alt.selection_interval(bind="scales")
 
-        # Add selection to chart
-        chart = chart.add_selection(selection)
+        if interactive==True:
+            # Create Selection
+            selection = alt.selection_interval(bind="scales")
+            # Add selection to chart
+            chart = chart.add_selection(selection)
+
 
         return chart
 
@@ -818,13 +1034,15 @@ class Spectrum:
 
         return chart
 
-    def plot_spectrum_peak_picking(self,title=None,threshold=0.01):
+    def plot_spectrum_peak_picking(self,title=None,threshold=0.01,distance=1, width=1, vertical_shift= -10):
         """
         Performs peakpicking on a total given spectrum object using the Scipy find_peaks function
 
         Attributes:
             title: Title of the plot
             threshold: Threshold for peak picking
+            distance: Minimum horizontal distance between two peaks
+            width: Minimum width of the peaks        
         """
 
         alt.data_transformers.disable_max_rows()
@@ -836,7 +1054,7 @@ class Spectrum:
 
         # Find the peaks
 
-        peaks, _ = find_peaks(data["y"], height=threshold)
+        peaks, _ = find_peaks(data["y"], height=threshold,distance=distance,width=width)
 
 
         # Create the chart
@@ -855,9 +1073,27 @@ class Spectrum:
 
         data_peaks = data.iloc[peaks]
 
-        peaks_chart = alt.Chart(data_peaks).mark_point(color="red").encode(
+        peaks_chart = alt.Chart(data_peaks).mark_rule(color="red",strokeDash=[5,5]).encode(
             x="x",
             y="y"
+        )
+
+        annotations = alt.Chart(data_peaks).mark_text(
+            align = "center",
+            baseline = "bottom",
+            dx = vertical_shift,
+            dy = -10,
+            angle=90,
+            fontSize=10,
+            color="black"
+        ).encode(
+            x = "x",
+            y = "y",
+            text=alt.Text("x:Q",format=".2f")
+        ).transform_calculate(
+            text = "datum.x +  ' cm⁻¹'"
+        ).encode(
+            text="text:N"
         )
 
         # Create Selection
@@ -870,7 +1106,7 @@ class Spectrum:
 
         # Combine chart
         
-        chart = chart + peaks_chart
+        chart = chart + peaks_chart + annotations
 
         return chart,peaks
 
@@ -1330,57 +1566,64 @@ class Baseline:
             + Large Window Size, High Degree = May introduce artifacts
         """
 
-        # Make chart of original data
+
+        data = self.spectrum.data
+
+        y_data = data[:,1]
+
+        # Apply Savitzky-Golay filter
+
+        y_smooth = savgol_filter(y_data,window_length=window_size, polyorder=poly_order)
+
+        plt.plot(data[:,0],y_data, label="Original Data")
+        plt.plot(data[:,0],y_smooth, label="Savitzky-Golay Filtered Data")
+        plt.title("Savitzky-Golay Filtering")
+        plt.xlabel("Wavenumber / cm⁻¹")
+        plt.ylabel("Intensity")
+        plt.legend()
+        plt.show()
+
+        # Return new Object with smoothed data
+
+        Spectrum_smoothed = Spectrum(self.spectrum.name + " Smoothed", np.column_stack((data[:,0],y_smooth)))
+
+        return Baseline(Spectrum_smoothed)
+
+    def rolling_average_smoothing(self, window_size=2, mode="full"):
+        """ 
+        Computes a rolling average and smoothes the spectrum
+        """
+
+
         data = pd.DataFrame(self.spectrum.data[:,0:2], columns=["x","y"])
 
-        chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
-            y=alt.Y("y", title="Intensity"),
-            color=alt.value("black"),
-        ).properties(
-            title="Original Spectrum",
-            width = 800,
-            height = 400
-        )
+        data["y_smoothed"] = data["y"].rolling(window=window_size, min_periods=1, center=True).mean()
 
-        # Create Selection
+        # Drop Nanas
+        data = data.dropna()
 
-        selection = alt.selection_interval(bind="scales")
+        x_smoothed = data["x"].values
+        y_smoothed = data["y_smoothed"].values
 
-        # Add selection to chart
+        plt.plot(data["x"],data["y"], label="Original Data")
+        plt.plot(x_smoothed,y_smoothed, label="Rolling Average Smoothed Data")
+        plt.title("Rolling Average Smoothing")
+        plt.xlabel("Wavenumber / cm⁻¹")
+        plt.ylabel("Intensity")
+        plt.legend()
+        plt.show()
 
-        chart = chart.add_selection(selection)
+        # Return Object with Smoothed Data
 
-        # Apply the Savitzky-Golay Filter
+        Spectrum_smoothed = Spectrum(self.spectrum.name + " Smoothed", np.column_stack((x_smoothed,y_smoothed)))
 
-        y_smooth = savgol_filter(self.spectrum.data[:,1], window_size, poly_order)
+        return Baseline(Spectrum_smoothed)
 
-        # Alter Data in self
-
-        self.spectrum.data[:,1] = y_smooth
-
-        # Make chart of smoothed data
-
-        data_smooth = pd.DataFrame(self.spectrum.data[:,0:2], columns=["x","y"])
-
-        # move y up by offset for better visalization
-
-        data_smooth["y"] = data_smooth["y"] + offset
-
-
-        chart_smooth = alt.Chart(data_smooth).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm$^{-1}$", sort="descending").axis(format="0.0f"),
-            y=alt.Y("y", title="Intensity"),
-            color=alt.value("red")
-        )
-
-        # Combine the charts
-
-        combined = chart + chart_smooth
-
-        return combined 
-
-# Here write the Noise reduction Class
+    def return_spectrum(self):
+        """
+        Returns the spectrum object
+        """
+        return self.spectrum
 
 
 
@@ -2124,5 +2367,4 @@ class Deconvolution:
         plt.legend()
         plt.show()
         return popt
-    
-    
+
