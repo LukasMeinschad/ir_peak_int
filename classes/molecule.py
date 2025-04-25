@@ -4,7 +4,8 @@ from rdkit.Chem import AllChem
 import py3Dmol
 from ipywidgets import widgets, interact, fixed
 from IPython.display import display 
-
+from pymatgen.symmetry.analyzer import PointGroupAnalyzer
+from pymatgen.core import Molecule as PMG_Molecule
 
 # I know I know ...
 def section(fle, begin, end):
@@ -164,6 +165,13 @@ class Molecule:
         self.mol3D = None
         self.frequencies = None
         self.normal_modes = None
+        self.symmetry = {
+            "point_group": None,
+            "symmetry_operations": None,
+            "symmetry_elements": None,
+            "equivalent_atoms": None,
+            "eq_atoms_transformations": None
+        }
    
 
     @classmethod
@@ -235,7 +243,61 @@ class Molecule:
         view.animate({"loop": "backAndForth"})
         view.show()
 
-    def visualize_normal_modes(self):
+    def draw_normal_mode_and_vectors(self, mode=0):
+        """ 
+        Draws the normal mode of a i given molecule together with the vectors
+        """
+
+        # bohr to angstrom
+        bohr_to_angstrom = 0.529177249
+
+        # Create XYZ format string with coordinates and displacements
+        xyz = f"{len(self.atoms)}\n\n"
+        for i in range(len(self.atoms)):
+            # Get the base coordinateds
+            atom_coords = self.atoms[i].coords
+            mode_coords = self.normal_modes[mode][i]
+            # Format line: atom baseX,baseY,baseZ, dispX,dispY,dispZ
+            xyz += (f"{self.atoms[i].symbol} "
+                    f"{atom_coords[0]*bohr_to_angstrom} "
+                    f"{atom_coords[1]*bohr_to_angstrom} "
+                    f"{atom_coords[2]*bohr_to_angstrom} "
+                    f"{mode_coords[0]*bohr_to_angstrom} "
+                    f"{mode_coords[1]*bohr_to_angstrom} "
+                    f"{mode_coords[2]*bohr_to_angstrom}\n"
+                    )
+        # set up 3D view
+        view = py3Dmol.view(width=800, height=400)
+        # Add model with vibration an parameters
+        view.addModel(xyz, "xyz", {"vibrate": {"frames":20, "amplitude":1.5}})
+        # Style the atoms
+        view.setStyle({"sphere": {"scale": 0.3}, "stick": {"radius": 0.2}})
+        # Set background color
+        view.setBackgroundColor("white")
+        # Add vectors
+        for i in range(len(self.atoms)):
+            atom_coords = self.atoms[i].coords
+            mode_coords = self.normal_modes[mode][i]
+            # Add vector from atom to mode
+            view.addArrow({
+                "start": {
+                    "x": atom_coords[0]*bohr_to_angstrom,
+                    "y": atom_coords[1]*bohr_to_angstrom,
+                    "z": atom_coords[2]*bohr_to_angstrom
+                },
+                "end": {
+                    "x": mode_coords[0]*bohr_to_angstrom,
+                    "y": mode_coords[1]*bohr_to_angstrom,
+                    "z": mode_coords[2]*bohr_to_angstrom
+                },
+                "radius": 0.1,
+                "color": "red"
+            })
+        # Animate the view
+        view.animate({"loop": "backAndForth"})
+        view.show()
+
+    def visualize_normal_modes(self,vector=False):
         """
         Visualizes the normal modes of the molecule
         """
@@ -244,15 +306,24 @@ class Molecule:
         if self.frequencies is None:
             raise ValueError("No normal modes found for the molecule.")
         
-
-        # Create Interative widget
-        interact(self.draw_normal_mode,
+        if vector == False:
+            # Create Interative widget
+            interact(self.draw_normal_mode,
                  mode = widgets.Dropdown(
                      options = self.frequencies,
                      value = 0,
                      description = "Normal Mode",
                      style = {"description_width": "initial"},
-                 ))
+            ))
+        else:
+            # Create Interative widget
+            interact(self.draw_normal_mode_and_vectors,
+                 mode = widgets.Dropdown(
+                     options = self.frequencies,
+                     value = 0,
+                     description = "Normal Mode",
+                     style = {"description_width": "initial"},
+            ))
         
 
 
@@ -358,9 +429,223 @@ class Molecule:
             view.setBackgroundColor('white')
             view.zoomTo()
             view.show()
-        
 
-           
+    def visualize_molecule_3D_coords(self,show_symmetry_elements=False):
+        """ 
+        Visualizes the molecule using py3Dmol and the respective coordinates
+        """
+        view = py3Dmol.view(width=800, height=400)
+        
+        # bohr  to angstrom
+        bohr_to_angstrom = 0.529177249
+        # Create XYZ format string with coordinates
+        xyz = f"{len(self.atoms)}\n\n"
+        for i in range(len(self.atoms)):
+            # Get the base coordinateds
+            atom_coords = self.atoms[i].coords
+            # Format line: atom baseX,baseY,baseZ
+            xyz += (f"{self.atoms[i].symbol} "
+                    f"{atom_coords[0]*bohr_to_angstrom} "
+                    f"{atom_coords[1]*bohr_to_angstrom} "
+                    f"{atom_coords[2]*bohr_to_angstrom}\n"
+                    )
+        # Add model with vibration an parameters
+        view.addModel(xyz, "xyz")
+        # Style the atoms
+        view.setStyle({"sphere": {"scale": 0.3}, "stick": {"radius": 0.2}})
+        # Set background color
+
+
+        if show_symmetry_elements==True:
+            for op in self.symmetry["symmetry_operations"]:
+                # Check if it is a rotation
+                # extract matrix of symm op
+                matrix = op.as_dict()["matrix"]
+                matrix = np.array(matrix)
+                # 4x4 affine transformation
+                # check if rotation
+                if np.isclose(np.linalg.det(matrix),1) or np.isclose(np.linalg.det(matrix),-1):
+                    # extract top left 3x3 matrix
+                    rotation_matrix = matrix[:3,:3]
+                    # compute eigenvectors eigenvals
+                    eigenvalues, eigenvectors = np.linalg.eig(rotation_matrix)
+
+                    # normal vector corresponds to eigenvalue of -1
+                    # check if one eigenvalue is -1
+                    if np.isclose(eigenvalues[0],-1):
+                        # get normal vector
+                        normal_vector = eigenvectors[:,0]
+                    elif np.isclose(eigenvalues[1],-1):
+                        # get normal vector
+                        normal_vector = eigenvectors[:,1]
+                    elif np.isclose(eigenvalues[2],-1):
+                        # get normal vector
+                        normal_vector = eigenvectors[:,2]
+                    else:
+                        print("no normal vector found")
+                        normal_vector = None
+
+                print(normal_vector) 
+                if normal_vector is not None:
+                    # calculate orthogonal vectors
+
+                    size=2
+                    
+                    u = np.cross(normal_vector, [1,0,0])
+
+                    # normalize 
+                    u  = u / np.linalg.norm(u)
+                    
+                    #second orthogonal vector
+                    v = np.cross(normal_vector, u)
+                    # normalize
+                    v = v / np.linalg.norm(v)
+
+
+                    corners = [
+                        [0,0,0] -size*u - size*v,
+                        [0,0,0] -size*u + size*v,
+                        [0,0,0] +size*u + size*v,
+                        [0,0,0] +size*u - size*v,
+                    ]
+
+                    for corner in corners:
+                        # add cube
+                        view.addBox({
+                            "center": {
+                                "x": corner[0],
+                                "y": corner[1],
+                                "z": corner[2]
+                            },
+                            "size": {
+                                "x": size,
+                                "y": size,
+                                "z": size
+                            },
+                            "color": "green",
+                            "alpha": 0.5
+                        })
+
+                    for corner in corners:
+                        # add vector from origin
+                        view.addArrow({
+                            "start": {
+                                "x": 0,
+                                "y": 0,
+                                "z": 0
+                            },
+                            "end": {
+                                "x": corner[0],
+                                "y": corner[1],
+                                "z": corner[2]
+                            },
+                            "radius": 0.1,
+                            "color": "green"
+                        })
+                                  # show vectors u ,v
+
+                    view.addArrow({
+                        "start": {
+                            "x": 0,
+                            "y": 0,
+                            "z": 0
+                        },
+                        "end": {
+                            "x": u[0]*size,
+                            "y": u[1]*size,
+                            "z": u[2]*size
+                        },
+                        "radius": 0.1,
+                        "color": "red"
+                    })
+                    view.addArrow({
+                        "start": {
+                            "x": 0,
+                            "y": 0,
+                            "z": 0
+                        },
+                        "end": {
+                            "x": v[0]*size,
+                            "y": v[1]*size,
+                            "z": v[2]*size
+                        },
+                        "radius": 0.1,
+                        "color": "blue"
+                    }) 
+                 
+
+                    
+        view.setBackgroundColor("white")
+        # show the view
+        view.show()
+
+
+
+    def extract_coordinates(self):
+        """
+        Extracts the coordinates of each atom in the molecule
+        """
+
+        coords = []
+        for i, atom in enumerate(self.atoms):
+            coords.append(atom.coords)
+        return coords
+    
+    def extract_atoms(self):
+        """ 
+        Extracts the atoms of the molecule
+        """
+        atoms = []
+        for i, atom in enumerate(self.atoms):
+            atoms.append(atom.symbol)
+        return atoms
+    
+        
+    def determine_symmetry(self):
+        """
+        Determines symmetry of the molecule using pymatgen, stores it in the molecules symmetry dictionary
+
+        Returns:
+            equivalent_atoms (list): a list of equivalent atoms in the molecule
+            point_group (str): the point group of the molecule
+        """ 
+
+        # Extract atoms
+        atoms = self.extract_atoms()
+        # Extract coords
+        coords = self.extract_coordinates()
+        # Create pymatgen molecule object
+        pmg_molecule = PMG_Molecule(atoms, coords)
+
+        pga = PointGroupAnalyzer(pmg_molecule)
+        point_group = pga.get_pointgroup()
+
+
+        # Get equivalent atoms
+        equivalent_atoms = pga.get_equivalent_atoms()
+        eq_sets = equivalent_atoms["eq_sets"]
+        eq_sym_ops = equivalent_atoms["sym_ops"]
+
+        # Get symmetry operations
+        sym_ops = pga.get_symmetry_operations()
+
+
+
+        self.symmetry["point_group"] = point_group
+        self.symmetry["equivalent_atoms"] = eq_sets
+        self.symmetry["eq_atoms_transformations"] = eq_sym_ops
+        self.symmetry["symmetry_operations"] = sym_ops
+
+
+
+        # Print nice command line output
+
+        print("------------ Symmetry Analysis ------------")
+        print(f"Atoms: {atoms}")
+        print(f"Point group: {point_group}")
+        print(f"Symmetry operations: {eq_sets}")
+        print("----------------------------------------------")
+
                     
 
         
