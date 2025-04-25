@@ -69,14 +69,99 @@ class Spectrum:
         self.data = data
         self.annotations = {}
         self.plot_configuration = {
-            x_label : "Wave Number / cm⁻¹",
-            y_label : "Intensity",
-            axis_format : "0.0f",
-            interactive : True,
-            width : 800,
-            height : 400,
-            color : "black",
-            line_width : 1 }
+            "x_label" : "Wavenumber / cm⁻¹",
+            "y_label" : "Intensity",
+            "axis_format" : "0.0f",
+            "interactive" : True,
+            "width" : 800,
+            "height" : 400,
+            "color" : "black",
+            "line_width" : 1,
+            "categorical_scheme" : "category10",
+            "color_reverse" : False,
+            "ppi" : 600,
+            }
+        
+
+    @classmethod
+    def from_csv(cls,filepath,sep,comma,header=None):
+        """ 
+        Reads in the data from a CSV file
+
+        Parameters:
+            filepath (str): Filepath of the CSV
+            sep (str): Seperator used in the file
+            comma (str): Comma point used (either . or , )
+            header (int): None if no header is present, else the header determines how much rows are skipped
+        """
+        data = pd.read_csv(filepath, header=header, sep=sep)
+        data = data.replace(comma, ".", regex=True).astype(float)
+        data_np = data.to_numpy()
+        return cls(filepath,data_np)
+
+    def plot_spectrum(self,title=None,legend_title="Legend",save=False):
+        """ 
+        Plots the spectrum using Altair as a package
+        
+        Parameters:
+            self: The Spectrum object
+            title: The title of the plot
+            legend_title: Title of the Legend in the Plot
+        """
+        
+        alt.data_transformers.disable_max_rows()
+        
+        if not title:
+            title = "Spectrum of " + self.name
+
+        
+
+
+
+        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
+        
+        data["Legend"]  = self.name
+
+        # Adjust axis scale
+
+        min_x = data["x"].min() - 10
+        max_x = data["x"].max() + 10
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", 
+                    title=self.plot_configuration["x_label"], 
+                    sort="descending",
+                    axis = alt.Axis(format="0.0f"),
+                    scale=alt.Scale(domain=[min_x,max_x])),
+            
+            y=alt.Y("y", title=self.plot_configuration["y_label"]),
+            
+            color = alt.Color("legend:N",legend=alt.Legend(title="Spectrum Name")).scale(scheme=self.plot_configuration["categorical_scheme"],reverse=self.plot_configuration["color_reverse"]),
+            #color=alt.value("black"),
+        ).properties(
+            title=title,
+            width = self.plot_configuration["width"],
+            height = self.plot_configuration["height"]
+        )
+
+        # Create Selection
+
+        if self.plot_configuration["interactive"]==True:
+            # Create Selection
+            selection = alt.selection_interval(bind="scales")
+            # Add selection to chart
+            chart = chart.add_selection(selection)
+
+
+        if save:
+            # Save the chart as a PNG file
+            chart.save("spectrum.png",ppi= self.plot_configuration["ppi"])
+
+
+        return chart
+
+
+
 
 
     def import_vci_prediction(self,molpro_out_filepath):
@@ -299,22 +384,7 @@ class Spectrum:
 
 
 
-    @classmethod
-    def from_csv(cls,filepath,sep,comma,header=None):
-        """ 
-        Reads in the data from a CSV file
-
-        Parameters:
-            filepath (str): Filepath of the CSV
-            sep (str): Seperator used in the file
-            comma (str): Comma point used (either . or , )
-            header (int): None if no header is present, else the header determines how much rows are skipped
-        """
-        data = pd.read_csv(filepath, header=header, sep=sep)
-        data = data.replace(comma, ".", regex=True).astype(float)
-        data_np = data.to_numpy()
-        return cls(filepath,data_np)
-    
+        
     
     def derivative(self,data):
         """ 
@@ -335,6 +405,170 @@ class Spectrum:
 
         derivative = self.derivative(self.data)
         return Spectrum(self.name + " Derivative", np.column_stack((self.data[:,0],derivative)))
+
+    def plot_derivative(self,title=None, legend_title="Legend", save=False):
+        """ 
+        Plots the Derivative Spectrum of the Given Spectrum
+        """
+        alt.data_transformers.disable_max_rows()
+        if not title:
+            title = "Derivative Spectrum of " + self.name
+
+        derivative = self.derivative(self.data[:,0:2])
+        data = np.zeros((len(self.data),2))
+        data[:,0] = self.data[:,0]
+        data[:,1] = derivative
+        data = pd.DataFrame(data, columns=["x","y"])
+        data["Legend"]  = legend_title
+
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title=self.plot_configuration["x_label"] , sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title=self.plot_configuration["y_label"]),
+            color = alt.Color("legend:N",legend=alt.Legend(title="Spectrum Name")).scale(scheme=self.plot_configuration["categorical_scheme"],reverse=self.plot_configuration["color_reverse"]),
+        ).properties(
+            title=title,
+            width = self.plot_configuration["width"],
+            height = self.plot_configuration["height"]
+        )
+
+        if self.plot_configuration["interactive"]==True:
+            selection = alt.selection_interval(bind="scales")
+            # Add selection to chart
+            chart = chart.add_selection(selection)
+
+        if save:
+            # Save the chart as a PNG file
+            chart.save("spectrum_derivative.png",ppi= self.plot_configuration["ppi"])
+
+        return chart
+
+    def plot_spectral_window(self,x_min,x_max,title=None,legend_title="Legend",save=False):
+        """
+        Plots a given spectral window of the Spectrum object
+
+        Attributes:
+            x_min: Minimum Wavenumber
+            x_max: Maximum Wavenumber
+            title: Title of the plot
+        """
+        data = self.data
+        mask = (data[:,0] >= x_min) & (data[:,0] <= x_max)
+        data = data[mask]
+        
+        # Select column one
+        data = pd.DataFrame(data[:,0:2], columns=["x","y"])
+        alt.data_transformers.disable_max_rows()
+
+        if not title:
+            title = "Spectral Window of " + self.name
+
+        data["Legend"]  = legend_title
+
+
+        chart = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title=self.plot_configuration["x_label"], sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title=self.plot_configuration["y_label"]),
+            color=alt.Color("legend:N",legend=alt.Legend(title=legend_title)).scale(scheme=self.plot_configuration["categorical_scheme"],reverse=self.plot_configuration["color_reverse"]),
+        ).properties(
+            title=title,
+            width = self.plot_configuration["width"],
+            height = self.plot_configuration["height"]
+        )
+
+        # Create Selection
+
+        if self.plot_configuration["interactive"]==True:
+            # Create Selection
+            selection = alt.selection_interval(bind="scales")
+            # Add selection to chart
+            chart = chart.add_selection(selection)
+
+
+        # Add selection to chart
+
+        chart = chart.add_selection(selection)
+
+        if save:
+            # Save the chart as a PNG file
+            chart.save("spectrum_spectral_window.png",ppi= self.plot_configuration["ppi"])
+
+
+        return chart
+
+    def plot_higher_derivatives_spectral_window(self,x_min,x_max,order=2,title=None,legend_title="Legend",save=False):
+        """
+        Plots Higher Order Derivatives of a given spectral window
+        """
+
+        # To implement
+
+
+
+
+
+    def interactive_integration(self, title="Interactive Peak Integration"):
+        """ 
+        Allows for interactive integration where the user is able to set the boundaries of integration
+        using the altair package
+        """
+
+        alt.data_transformers.disable_max_rows()
+
+        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
+
+        base = alt.Chart(data).mark_line().encode(
+            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title="Intensity"),
+            color=alt.value("black")
+        )
+
+        # Add a brush selection for x-axis
+
+        brush = alt.selection_interval(encodings=["x"], resolve="intersect")
+
+        # Create the background chart with brush
+
+        background = base.add_params(brush)
+
+        # Create the selected chart area
+
+        selected = base.transform_filter(brush).mark_area( 
+            color = "blue",
+            opacity = 0.5
+        )
+
+        # Calculate the integral under the curve for selected interval
+
+        integral_text = alt.Chart(data).mark_text(
+            align="center",
+            baseline="middle",
+            fontSize=14,
+            color = "black",
+            dx=10,
+            dy=10
+        ).encode(
+            x = alt.value(400),
+            y = alt.value(50)
+        ).transform_filter(
+            brush
+        ).transform_aggregate(
+            integral="sum(y)"
+        ).encode(
+
+            text=alt.Text("integral:Q", format=".4f")
+        )
+
+
+        # combine the charts
+
+        chart = (background + selected + integral_text).properties(
+            width = 800,
+            height = 400
+        )
+
+        return chart
+
 
 
     def find_maxima(self, threshold=0.1, distance=1):
@@ -660,202 +894,13 @@ class Spectrum:
         return chart
 
      
-    def interactive_integration(self):
-        """ 
-        Allows for interactive integration where the user is able to set the boundaries of integration
-        using the altair package
-        """
-
-        alt.data_transformers.disable_max_rows()
-
-        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
-
-        base = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
-            y=alt.Y("y", title="Intensity"),
-            color=alt.value("black")
-        )
-
-        # Add a brush selection for x-axis
-
-        brush = alt.selection_interval(encodings=["x"], resolve="intersect")
-
-        # Create the background chart with brush
-
-        background = base.add_params(brush)
-
-        # Create the selected chart area
-
-        selected = base.transform_filter(brush).mark_area( 
-            color = "blue",
-            opacity = 0.5
-        )
-
-        # Calculate the integral under the curve for selected interval
-
-        integral_text = alt.Chart(data).mark_text(
-            align="center",
-            baseline="middle",
-            fontSize=14,
-            color = "black",
-            dx=10,
-            dy=10
-        ).encode(
-            x = alt.value(400),
-            y = alt.value(50)
-        ).transform_filter(
-            brush
-        ).transform_aggregate(
-            integral="sum(y)"
-        ).encode(
-
-            text=alt.Text("integral:Q", format=".4f")
-        )
-
-
-        # combine the charts
-
-        chart = (background + selected + integral_text).properties(
-            width = 800,
-            height = 400
-        )
-
-        return chart
-
-
-    def plot_spectrum(self,title=None,interactive=True,color="black",legend_title="Legend"):
-        """ 
-        Plots the spectrum using Altair as a package
-        
-        Parameters:
-            self: The Spectrum object
-            title: The title of the plot
-            interactive: If True, plot is interactive
-            color: Gives the Color of the Data in the Plot
-            legend_title: Title of the Legend in the Plot
-        """
-        
-        alt.data_transformers.disable_max_rows()
-        
-        if not title:
-            title = "Spectrum of " + self.name
-
-        
 
 
 
-        data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
-        
-        data["Legend"]  = self.name
-
-        # Adjust axis scale
-
-        min_x = data["x"].min() - 10
-        max_x = data["x"].max() + 10
-
-        chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", 
-                    title="Wave Number / cm⁻¹", 
-                    sort="descending",
-                    axis = alt.Axis(format="0.0f"),
-                    scale=alt.Scale(domain=[min_x,max_x])),
-            
-            y=alt.Y("y", title="Intensity"),
-            
-            color = alt.Color("legend:N",legend=alt.Legend(title="Spectrum Name"))
-            #color=alt.value("black"),
-        ).properties(
-            title=title,
-            width = 800,
-            height = 400
-        )
-
-        # Create Selection
-
-        if interactive==True:
-            # Create Selection
-            selection = alt.selection_interval(bind="scales")
-            # Add selection to chart
-            chart = chart.add_selection(selection)
 
 
-        return chart
-
-    def plot_derivative(self,title=None):
-        """ 
-        Plots the Derivative Spectrum of the Given Spectrum
-        """
-        alt.data_transformers.disable_max_rows()
-        if title:
-            title = "Derivative Spectrum of " + self.name
-        else:
-            title = title
-
-        derivative = self.derivative(self.data[:,0:2])
-        data = np.zeros((len(self.data),2))
-        data[:,0] = self.data[:,0]
-        data[:,1] = derivative
-        data = pd.DataFrame(data, columns=["x","y"])
-
-        chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
-            y=alt.Y("y", title="First Derivative of Intensity"),
-            color=alt.value("red")
-        ).properties(
-            title=title,
-            width = 800,
-            height = 400
-        )
-
-        # Create Selection
-        selection = alt.selection_interval(bind="scales")
-
-        # Add selection to chart
-        chart = chart.add_selection(selection)
-
-        return chart
     
-    def plot_spectral_window(self,x_min,x_max,title=None):
-        """
-        Plots a given spectral window of the Spectrum object
 
-        Attributes:
-            x_min: Minimum Wavenumber
-            x_max: Maximum Wavenumber
-            title: Title of the plot
-        """
-        data = self.data
-        mask = (data[:,0] >= x_min) & (data[:,0] <= x_max)
-        data = data[mask]
-        
-        # Select column one
-        data = pd.DataFrame(data[:,0:2], columns=["x","y"])
-        alt.data_transformers.disable_max_rows()
-
-        if not title:
-            title = "Spectral Window of " + self.name
-
-
-
-        chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
-            y=alt.Y("y", title="Intensity"),
-            color=alt.value("black")
-        ).properties(
-            title=title,
-            width = 800,
-            height = 400
-        )
-
-        # Create Selection
-
-        selection = alt.selection_interval(bind="scales")
-
-        # Add selection to chart
-
-        chart = chart.add_selection(selection)
-
-        return chart
 
     def plot_spectrum_peak_picking(self,title=None,threshold=0.01,distance=1, width=1, vertical_shift= -10):
         """

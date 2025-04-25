@@ -1,3 +1,6 @@
-# ir_peak_int
+# Spec_Tools
 
-A python package containing multiple tools for the analysis of FT_IR spectra.
+## Overview
+
+Spec_Tools is a Python package designed to facilitate the analysis of spectroscopic data. It provides tools for reading, processing, and visualizing data from various spectroscopic techniques, e.g UV-VIS, FTIR, NMR. 
+
