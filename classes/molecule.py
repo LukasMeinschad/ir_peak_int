@@ -485,11 +485,11 @@ class Molecule:
                         print("no normal vector found")
                         normal_vector = None
 
-                print(normal_vector) 
+                
                 if normal_vector is not None:
                     # calculate orthogonal vectors
 
-                    size=2
+                    size=3
                     
                     u = np.cross(normal_vector, [1,0,0])
 
@@ -509,69 +509,34 @@ class Molecule:
                         [0,0,0] +size*u - size*v,
                     ]
 
-                    for corner in corners:
-                        # add cube
-                        view.addBox({
-                            "center": {
-                                "x": corner[0],
-                                "y": corner[1],
-                                "z": corner[2]
-                            },
-                            "size": {
-                                "x": size,
-                                "y": size,
-                                "z": size
-                            },
-                            "color": "green",
-                            "alpha": 0.5
-                        })
+                    # Define the four corners
 
-                    for corner in corners:
-                        # add vector from origin
-                        view.addArrow({
-                            "start": {
-                                "x": 0,
-                                "y": 0,
-                                "z": 0
-                            },
-                            "end": {
-                                "x": corner[0],
-                                "y": corner[1],
-                                "z": corner[2]
-                            },
-                            "radius": 0.1,
-                            "color": "green"
-                        })
-                                  # show vectors u ,v
 
-                    view.addArrow({
-                        "start": {
-                            "x": 0,
-                            "y": 0,
-                            "z": 0
-                        },
-                        "end": {
-                            "x": u[0]*size,
-                            "y": u[1]*size,
-                            "z": u[2]*size
-                        },
-                        "radius": 0.1,
-                        "color": "red"
-                    })
-                    view.addArrow({
-                        "start": {
-                            "x": 0,
-                            "y": 0,
-                            "z": 0
-                        },
-                        "end": {
-                            "x": v[0]*size,
-                            "y": v[1]*size,
-                            "z": v[2]*size
-                        },
-                        "radius": 0.1,
-                        "color": "blue"
-                    }) 
+                    def ary2v3(a):
+                        return {"x": a[0], "y": a[1], "z": a[2]}
+
+                    def add_surface(view,triangles):
+                        for cell in triangles:
+                            normal = ary2v3(np.cross(np.array(cell[1]) - np.array(cell[0]),np.array(cell[2]) - np.array(cell[0])))
+                            view.addCustom({
+                                "vertexArr": [ary2v3(cell[0]), ary2v3(cell[1]), ary2v3(cell[2])],
+                                "normalArr": [normal, normal, normal],
+                                "faceArr": [0, 1, 2],
+                                "color": "blue",
+                                "alpha": 0.5,
+                            }) 
+
+                    p1 = corners[0]
+                    p2 = corners[1]
+                    p3 = corners[2]
+                    p4 = corners[3]
+
+                    triangles = [
+                        [p1, p2, p3],
+                        [p1, p3, p4],
+                    ]
+
+                    add_surface(view, triangles)
                  
 
                     

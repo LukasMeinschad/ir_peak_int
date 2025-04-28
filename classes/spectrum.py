@@ -5,6 +5,10 @@ from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 import altair as alt
 
+from classes import annotation
+
+
+
 
 def convert_subscript_superscript(text, is_superscript=True):
     """ 
@@ -67,7 +71,7 @@ class Spectrum:
         """
         self.name = name
         self.data = data
-        self.annotations = {}
+        self.annotations = []
         self.plot_configuration = {
             "x_label" : "Wavenumber / cm⁻¹",
             "y_label" : "Intensity",
@@ -394,6 +398,24 @@ class Spectrum:
             np.array: The Numerical Derivative [x,y']
         """
         return np.gradient(self.data[:,1],self.data[:,0])
+    
+    def higher_order_derivative(self,order=2):
+        """
+        Calculates higher order derivatives using central differences
+        """
+        # build up array of derivatives
+        # first column = x
+        # second column = y
+        # third column = y'
+        # ...
+        # shape of array is (len(self.data[:0   ]),order+1)
+        data = np.zeros((len(self.data),order+1))
+        data[:,0] = self.data[:,0]
+        data[:,1] = self.data[:,1]
+        for i in range(2,order+1):
+            data[:,i] = np.gradient(data[:,i-1],data[:,0])
+        return data 
+    
 
     def derivative_spectrum(self):
         """  
@@ -501,9 +523,57 @@ class Spectrum:
         Plots Higher Order Derivatives of a given spectral window
         """
 
-        # To implement
+        # TODO FIX THIS BROKEN AS FUNCTION
+        derivatives = self.higher_order_derivative(order=order)
+        # mask
+        mask = (derivatives[:,0] >= x_min) & (derivatives[:,0] <= x_max)
+        derivatives = derivatives[mask]
+        # Labels for columns
+        labels = ["x"] + [f"y^({i})" for i in range(1,order+1)]
+        derivatives = pd.DataFrame(derivatives, columns=labels)
 
+        # Set the title
+        if not title:
+            title = "Higher Derivative Spectrum of " + self.name
 
+        alt.data_transformers.disable_max_rows()
+
+        # Create the chart
+        # make subplot for each derivative stack horizontally 
+
+        charts = []
+        for i in range(1,order+1):
+            # This is ugly but otherwise it doesnt work
+            data = derivatives.iloc[:,[0,i]]
+
+            chart = alt.Chart(data).mark_line().encode(
+                x=alt.X("x", title=self.plot_configuration["x_label"], sort="descending").axis(format="0.0f"),
+                y=alt.Y(f"y^({i}):Q", title=f"y^({i})"),
+                color=alt.value("black")
+            ).properties(
+                title=f"{title} Derivative of Order {i}",
+                width = self.plot_configuration["width"] * order,
+                height = self.plot_configuration["height"] * order
+            )
+
+        
+        combined_chart = alt.hconcat(*charts).resolve_scale(
+            y='independent'
+        )
+        # Create Selection
+        if self.plot_configuration["interactive"]==True:
+            # Create Selection
+            selection = alt.selection_interval(bind="scales")
+            # Add selection to chart
+            combined_chart = combined_chart.add_selection(selection)
+        # Add selection to chart
+        combined_chart = combined_chart.add_selection(selection)
+        if save:
+            # Save the chart as a PNG file
+            combined_chart.save("spectrum_higher_derivative.png",ppi= self.plot_configuration["ppi"])
+        return combined_chart
+
+        
 
 
 
@@ -515,12 +585,27 @@ class Spectrum:
 
         alt.data_transformers.disable_max_rows()
 
+
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
 
+        # adjust axis scale
+        min_x = data["x"].min() - 10
+        max_x = data["x"].max() + 10
+
         base = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
-            y=alt.Y("y", title="Intensity"),
+            x=alt.X("x", 
+                    title=self.plot_configuration["x_label"], 
+                    sort="descending",
+                    axis = alt.Axis(format="0.0f"),
+                    scale=alt.Scale(domain=[min_x,max_x])),
+            y=alt.Y("y",
+                    title=self.plot_configuration["y_label"]),
+
             color=alt.value("black")
+        ).properties(
+            title = title,
+            width = self.plot_configuration["width"],
+            height = self.plot_configuration["height"]
         )
 
         # Add a brush selection for x-axis
@@ -587,125 +672,89 @@ class Spectrum:
 
         negative_peaks, _ = find_peaks(-self.data[:,1], height=threshold, distance=distance)
         peaks = np.concatenate([peaks,negative_peaks])
-
-        
-
         return peaks
     
-    @classmethod
-    def initialize_annotation_dict(cls,mode="chemist_not"):
+    
+
+    def add_annoations(self,annotations):
         """
-        Initializes a empty notation dictionary which can be filled by the user
+        Adds a given list of annotations to the spectrum object
 
-        mode = chemist_not (chemist's notation based on the principal motion pattern)
+        Attributes:
+            annotations: A list of annotation objects
+        """ 
 
-        mode = spectro (spectroscopist's notation based on the molecular point group)
+        self.annotations.extend(annotations)
 
-        mode = physicist (notation carrying quantum mechanical information)
+    def plot_spectrum_annotations_vertical(self,title=None):
+        """ 
+        Plots a given spectrum with annotations as dashed vertical lines
         """
-
-        chemist_notation = {
-           "stretching": "\u03bd",
-           "bending": "\u03b4",
-           "rocking": "\u03c1",
-           "wagging": "\u03a9",
-           "twisting": "\u03c4" 
-        }
-
-        mode = input("Please enter the mode of the annotation dictionary: chemist_not, spectro, physicist")
-        if mode == "chemist_not":
-            vib_type = input("Please enter the type of vibration: \n "  +
-                                "stretching, bending, rocking, wagging, twisting")
-            if vib_type in chemist_notation.keys():
-                vib_type = chemist_notation[vib_type]
-                annotation = {
-                    "vib_type": vib_type,
-                    "freq": None,
-                    "group": None,
-                    "description": None
-                }
-            else:
-                print("Invalid Vibration Type")
-                return None
-            
-
-        return annotation
-
-    def clear_annotations(self):
-        """
-        Clears the current annotations from the object
-        """
-
-        self.annotations = {}
-        print("Current annotations cleared")
-
-    def add_annotation(self,annotation, num=1):
-        """
-        Adds one of the three standardized annotations to the spectrum object
-        
-        Parameters:
-
-
-        """
-        
-        # Check if annotations are already present
-        if not self.annotations:
-            self.annotations = {}
-
-
-        self.annotations[num] = annotation
-        print("Annotation added to spectrum object")
-
-    def plot_annotations_user(self):
-        """
-        Plots all current user defined annotations into the spectrum
-        """
-
-        alt.data_transformers.disable_max_rows()
-
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
-
+        alt.data_transformers.disable_max_rows()
+        if not title:
+            title = "Spectrum of " + self.name
+        data["Legend"]  = self.name
         chart = alt.Chart(data).mark_line().encode(
-            x=alt.X("x", title="Wave Number / cm⁻¹", sort="descending").axis(format="0.0f"),
-            y=alt.Y("y", title="Intensity"),
-            color=alt.value("black")
+            x=alt.X("x", title=self.plot_configuration["x_label"], sort="descending").axis(format="0.0f"),
+            y=alt.Y("y", title=self.plot_configuration["y_label"]),
+            color=alt.Color("legend:N",legend=alt.Legend(title="Spectrum Name")).scale(scheme=self.plot_configuration["categorical_scheme"],reverse=self.plot_configuration["color_reverse"]),
         ).properties(
-            title="Spectrum of " + self.name,
-            width = 800,
-            height = 400
+            title=title,
+            width = self.plot_configuration["width"],
+            height = self.plot_configuration["height"]
         )
 
         # Create Selection
-        selection = alt.selection_interval(bind="scales")
-
+        if self.plot_configuration["interactive"]==True:
+            # Create Selection
+            selection = alt.selection_interval(bind="scales")
+            # Add selection to chart
+            chart = chart.add_selection(selection)
         # Add selection to chart
         chart = chart.add_selection(selection)
 
-        # Make vertical lines for each annotation
+        # Add the annotations
 
         annotations = []
-        for key, value in self.annotations.items():
-            if value["freq"]:
-                annotations.append(alt.Chart(pd.DataFrame({"x":[value["freq"]]})).mark_rule(color="red",strokeDash=[5,5]).encode(
-                    x="x"
-                ))
+        for annotation in self.annotations:
+
+            #search data to find nearest x point 
+            x_search = annotation.x_position
+
+            # Find the nearest x value in the data
+            nearest_x = min(data["x"], key=lambda x: abs(x - x_search))
+
         
-        # Add vib_type and group as text
 
-        annotations_text = []
-        for key, value in self.annotations.items():
-            if value["freq"]:
-                annotations_text.append(alt.Chart(pd.DataFrame({"x":[value["freq"]], "vib": [value["vib_type"] + value["group"]]})).mark_text(align="left", baseline="middle", dx=7, dy=-7, fontSize=14).encode(
-                    x="x",
-                    # Add the vib_type and group as text
-                    text=alt.Text("vib:N")
-                ))
+            # Create the vertical line
+            line = alt.Chart(data).mark_rule(color="red",strokeDash=[5,5]).encode(
+                x=alt.X("x:Q", title="Wave Number / cm⁻¹"),
+                y=alt.Y("y:Q", title="Intensity"),
+                color=alt.value("red")
+            ).transform_filter(
+                alt.datum.x == nearest_x
+            )
+
+            # Create the text annotation
+            text = alt.Chart(data).mark_text(
+                align="left",
+                baseline="middle",
+                dx = 10,
+                dy = -20,
+            ).encode(
+                x=alt.X("x:Q", title="Wave Number / cm⁻¹"),
+                y=alt.Y("y:Q", title="Intensity"),
+                text=alt.Text(f"{str(annotation.description)}"),
+            ).transform_filter(
+                alt.datum.x == nearest_x
+            )
 
 
-        chart = chart + alt.layer(*annotations) + alt.layer(*annotations_text)
-
+            chart = chart + line + text
+        
         return chart
-        
+    
 
 
 
