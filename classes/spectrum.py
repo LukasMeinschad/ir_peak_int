@@ -676,7 +676,7 @@ class Spectrum:
     
     
 
-    def add_annoations(self,annotations):
+    def add_annotations(self,annotations):
         """
         Adds a given list of annotations to the spectrum object
 
@@ -716,6 +716,8 @@ class Spectrum:
 
         # Add the annotations
 
+        
+
         annotations = []
         for annotation in self.annotations:
 
@@ -729,9 +731,9 @@ class Spectrum:
 
             # Create the vertical line
             line = alt.Chart(data).mark_rule(color="red",strokeDash=[5,5]).encode(
-                x=alt.X("x:Q", title="Wave Number / cm⁻¹"),
-                y=alt.Y("y:Q", title="Intensity"),
-                color=alt.value("red")
+                x=alt.X("x:Q"),
+                y=alt.Y("y:Q"),
+                color=alt.value(annotation.color)
             ).transform_filter(
                 alt.datum.x == nearest_x
             )
@@ -743,9 +745,9 @@ class Spectrum:
                 dx = 10,
                 dy = -20,
             ).encode(
-                x=alt.X("x:Q", title="Wave Number / cm⁻¹"),
-                y=alt.Y("y:Q", title="Intensity"),
-                text=alt.Text(f"{str(annotation.description)}"),
+                x=alt.X("x:Q"),
+                y=alt.Y("y:Q"),
+                text=alt.value(f"{annotation.description}"),
             ).transform_filter(
                 alt.datum.x == nearest_x
             )
