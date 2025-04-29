@@ -88,6 +88,16 @@ class Spectrum:
         
 
     @classmethod
+    def from_orca_spectrum(cls,filepath):
+        """ 
+        Reads in the IR Data created by Orca MAPSC command
+        
+        """
+        data = pd.read_csv(filepath, delim_whitespace=True)
+        data_np = data.to_numpy()
+        return cls(filepath,data_np)
+    
+    @classmethod
     def from_csv(cls,filepath,sep,comma,header=None):
         """ 
         Reads in the data from a CSV file
