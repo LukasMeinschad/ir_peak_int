@@ -54,6 +54,30 @@ def remove_numeration_atoms(ls):
             new_list.append(atom)
     return np.array(new_list)
 
+class Spectra:
+    def __init__(self,ls_of_spectra):
+        """
+        Initalizes a Spectra Object:
+
+        This object is a list of multiple members of the spectrum class.
+        The Spectra Class Contains Methods to overlap and compare spectra with each other
+        """
+
+        # check instances of all list oject
+
+        if all(isinstance(x, Spectrum) for x in ls_of_spectra):
+            print("All list items of type Spectrum, Initializing Spectra Object ...")
+            self.ls_of_spectra = ls_of_spectra
+        else:
+            raise Exception("Spectra Object can only be initialized as list of spectrum objects")
+        
+    def normalize_spectra(self):
+        """
+        Normalizes the intensity of all spectra to unity
+        this happens by dividing through the maximum value
+        """
+    
+
 class Spectrum:
     def __init__(self,name,data):
 
@@ -113,6 +137,30 @@ class Spectrum:
         data_np = data.to_numpy()
         return cls(filepath,data_np)
 
+
+    def normalize_spectra(self):
+        """"
+        Normalizes the y data in the spectrum object to unity, this is needed for comparison of spectra
+        """
+
+        data = self.data
+        # find maximum
+        max_y = self.data[:,1].max()
+        min_y = self.data[:,1].min()
+        data[:,1] = (data[:,1] -min_y) / (max_y - min_y)
+        self.data = data
+
+    def convert_transmittance_to_absorbance(self):
+        """
+        Changes the y data from transmittance to absorbance
+
+        A = 2-log(%T)
+        """
+        data = self.data
+        data[:,1] = 2-np.log(data[:,1])
+        self.data = data
+
+
     def plot_spectrum(self,title=None,legend_title="Legend",save=False):
         """ 
         Plots the spectrum using Altair as a package
@@ -134,12 +182,17 @@ class Spectrum:
 
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
         
-        data["Legend"]  = self.name
+        data["legend"]  = self.name
 
-        # Adjust axis scale
+        # Adjust x axis scale
 
         min_x = data["x"].min() - 10
         max_x = data["x"].max() + 10
+
+        # Adjust y axis scale
+
+        min_y  = data["y"].min()
+        max_y = data["y"].max()
 
         chart = alt.Chart(data).mark_line().encode(
             x=alt.X("x", 
@@ -148,7 +201,9 @@ class Spectrum:
                     axis = alt.Axis(format="0.0f"),
                     scale=alt.Scale(domain=[min_x,max_x])),
             
-            y=alt.Y("y", title=self.plot_configuration["y_label"]),
+            y=alt.Y("y", 
+                    title=self.plot_configuration["y_label"],
+                    scale=alt.Scale(domain=[min_y,max_y])),
             
             color = alt.Color("legend:N",legend=alt.Legend(title="Spectrum Name")).scale(scheme=self.plot_configuration["categorical_scheme"],reverse=self.plot_configuration["color_reverse"]),
             #color=alt.value("black"),
