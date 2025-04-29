@@ -76,8 +76,31 @@ class Spectra:
         Normalizes the intensity of all spectra to unity
         this happens by dividing through the maximum value
         """
-    
 
+        normalized_spectra = []
+        for spectrum in self.ls_of_spectra:
+            data = spectrum.data
+            y_min = data[:,1].min()
+            y_max = data[:,1].max()
+            data[:,1] = (data[:,1] - y_min)/(y_max - y_min)
+            spectrum.data = data
+            normalized_spectra.append(spectrum)
+        
+        # set new list of spectra
+        self.ls_of_spectra = normalized_spectra
+    
+    def create_ridgeline_plot(self):
+        """
+        """
+
+        all_data = []
+        for i, spectrum in enumerate(self.ls_of_spectra):
+            df = pd.DataFrame(spectrum.data[:,0:2],columns=["x","y"])
+            df["Spectrum"] = spectrum.name
+            df["Order"] = i
+            all_data.append(df)
+        
+        print(all_data)
 class Spectrum:
     def __init__(self,name,data):
 
