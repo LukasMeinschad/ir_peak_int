@@ -89,7 +89,7 @@ class Spectra:
         # set new list of spectra
         self.ls_of_spectra = normalized_spectra
     
-    def create_ridgeline_plot(self):
+    def create_ridgeline_plot(self,step=20):
         """
         """
 
@@ -100,7 +100,14 @@ class Spectra:
             df["Order"] = i
             all_data.append(df)
         
-        print(all_data)
+        combined_data = pd.concat(all_data)
+
+        chart = alt.Chart(combined_data, height=step).mark_area(
+            interpolate="monotone",
+            fillOpacity=0.8,
+            stroke="lightgray",
+            strokeWidth =0.5
+        )        
 class Spectrum:
     def __init__(self,name,data):
 
