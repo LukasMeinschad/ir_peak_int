@@ -89,25 +89,63 @@ class Spectra:
         # set new list of spectra
         self.ls_of_spectra = normalized_spectra
     
-    def create_ridgeline_plot(self,step=20):
+    def create_ridgeline_plot(self,step=20,title="Ridgeline Plot of Spectra"):
         """
         """
 
         all_data = []
+
+        min_x = float("inf")
+        max_lower_bound = float("inf")
+
+
         for i, spectrum in enumerate(self.ls_of_spectra):
             df = pd.DataFrame(spectrum.data[:,0:2],columns=["x","y"])
             df["Spectrum"] = spectrum.name
             df["Order"] = i
             all_data.append(df)
+
+            # find lowest maximum
+            max_lower_bound = min(max_lower_bound, df["x"].max())
+            # find minimum x value
+            min_x = min(min_x, df["x"].min())
+
         
         combined_data = pd.concat(all_data)
 
-        chart = alt.Chart(combined_data, height=step).mark_area(
+        chart = alt.Chart(combined_data, width=1000, height=step).mark_area(
             interpolate="monotone",
             fillOpacity=0.8,
             stroke="lightgray",
             strokeWidth =0.5
-        )        
+        ).encode(
+            alt.X("x:Q",
+                  title= "Wave Number / cm⁻¹", 
+                  sort="descending",
+                  scale=alt.Scale(domain=[min_x,max_lower_bound]),
+                  axis = alt.Axis(format="0.0f",grid=False)),
+            alt.Y("y:Q", 
+                  axis=None,
+                  scale=alt.Scale(domain=[0,1.2])),
+            alt.Fill("Order:O",legend=None, scale=alt.Scale(scheme="category10")),
+        ).facet(
+            row = alt.Row("Spectrum:N", title=None, header=alt.Header(labelAlign="left"))
+        ).properties(
+            title=title,
+            bounds = "flush"
+        ).configure_facet(
+            spacing=0
+        ).configure_view(
+            stroke=None
+        ).configure_title(
+            anchor="start",
+        )
+
+        # Add selection to chart
+        selection = alt.selection_interval(bind="scales")
+        chart = chart.add_selection(selection)
+        return chart
+    
 class Spectrum:
     def __init__(self,name,data):
 
