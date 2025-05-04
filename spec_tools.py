@@ -171,3 +171,6 @@ def get_mol_file(compound):
     compound.get_molfiles()
     # Return mol file
     return compound
+
+def make_hello():
+    print("Hello World")

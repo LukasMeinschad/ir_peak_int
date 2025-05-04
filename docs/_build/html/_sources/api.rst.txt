@@ -1,0 +1,7 @@
+API
+=====
+
+.. automodule:: spec_tools
+    :members:
+    :undoc-members:
+    :show-inheritance: 
