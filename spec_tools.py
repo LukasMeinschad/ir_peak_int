@@ -11,8 +11,7 @@ import nistchempy as nist
 from classes import spectrum
 from classes import molecule
 from classes import annotation
-
-
+from classes import baseline
 
 
 def nist_compound_search(identifier, search_type="name"):

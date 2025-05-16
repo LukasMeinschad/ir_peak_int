@@ -244,10 +244,6 @@ class Spectrum:
         if not title:
             title = "Spectrum of " + self.name
 
-        
-
-
-
         data = pd.DataFrame(self.data[:,0:2], columns=["x","y"])
         
         data["legend"]  = self.name
