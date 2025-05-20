@@ -667,8 +667,126 @@ class Baseline:
         # But the baseline in the object
         self.baseline = baseline
 
+    def pspline_asls_fitting(self,lam=1e3, p=1e-2,num_knots=100,spline_degree=3,max_iter=50):
+        """ 
+        Uses Penalized Asls Spline Fitting method.
+
+        Parameters
+        ----------
+        lam : float
+            Smoothing parameter. The larger the value, the smoother the baseline.
+        p : float
+            Penalizing weight factor. The larger the value, the more penalizing is done.
+        num_knots : int
+            Number of knots for the spline fitting. Default is 100.
+        spline_degree : int
+            Degree of the spline to be used for the fitting. Default is 3, so cubic spline.
+        max_iter : int
+            Maximum number of iterations for the algorithm. Default is 50.
+        """
+        data = self.spectrum.data
+        data = pd.DataFrame(data[:,[0,1]],columns=["x","y"])
+        x = data["x"]
+        y = data["y"]
+
+        # Apply PSPLINE fitting
+        baseline, params = Baseline_fit(x).pspline_asls(y, lam=lam, p=p, num_knots=num_knots, spline_degree=spline_degree, max_iter=max_iter)
+
+        # Two subplots first showing original data + baseline and second showing the corrected data
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        ax[0].plot(data["x"], data["y"], label="Original Data")
+        ax[0].plot(data["x"], baseline, color="orange", label="PSPLINE")
+        ax[0].set_title("Original Data + Baseline")
+        ax[0].legend()
+        ax[1].plot(data["x"], data["y"] - baseline, label="Corrected Data")
+        ax[1].set_title("Corrected Data")
+        ax[1].legend()
+        plt.show()
+
+        # But the baseline in the object
+        self.baseline = baseline
     
 
+    def pspline_airpls(self,lam=1e3, num_knots=100,spline_degree=3,max_iter=50,tol=1e-3):
+        """ 
+        Performs Penalized Spline version of the AIRPLS method
+
+        Parameters
+        ----------
+        lam : float
+            Smoothing parameter. The larger the value, the smoother the baseline.
+        num_knots : int
+            Number of knots for the spline fitting. Default is 100.
+        spline_degree : int
+            Degree of the spline to be used for the fitting. Default is 3, so cubic spline.
+        max_iter : int
+            Maximum number of iterations for the algorithm. Default is 50.
+        tol : float
+            Tolerance for the convergence of the algorithm. Default is 1e-3.
+        """
+
+        data = self.spectrum.data
+        data = pd.DataFrame(data[:,[0,1]],columns=["x","y"])
+        x = data["x"]
+        y = data["y"]
+
+        # Apply PSPLINE fitting
+        baseline, params = Baseline_fit(x).pspline_airpls(y, lam=lam, num_knots=num_knots, spline_degree=spline_degree, max_iter=max_iter, tol=tol)
+
+        # Two subplots first showing original data + baseline and second showing the corrected data
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        ax[0].plot(data["x"], data["y"], label="Original Data")
+        ax[0].plot(data["x"], baseline, color="orange", label="PSPLINE AIRPLS")
+        ax[0].set_title("Original Data + Baseline")
+        ax[0].legend()
+        ax[1].plot(data["x"], data["y"] - baseline, label="Corrected Data")
+        ax[1].set_title("Corrected Data")
+        ax[1].legend()
+        plt.show()
+
+        # But the baseline in the object
+        self.baseline = baseline
 
 
+    def peak_filling_4s(self,half_window=None,lam_smooth=None,sections=None,max_iter=5):
+        """ 
+        Peforms the Peak Filling 4S Method described by Kristian Hovde Liland
+
+        Here we have 4 steps:
+
+        1. Smoothing: Whittaker smoothing
+        2. Subsampling: Binning the sample and using a local approach
+        3. Supression
+        4. Stretching
+
+        Parameters
+        ----------
+        half_window: int
+            The index-based size to use for the moving average window
+        lam_smooth: float
+            The smoothing parameter used for Whittaker smoothing
+            --> Note that if this is none no smoothing is performed
+        sections: int
+            The number of equaly sized sections the data is divided into
+        max_iter: int
+            The number of iterations to perform a smoothing
+        """
+        data = self.spectrum.data
+        data = pd.DataFrame(data[:,[0,1]],columns=["x","y"])
+        x = data["x"]
+        y = data["y"]
+        # Apply Peak Filling 4S fitting
+        baseline, params = Baseline_fit(x).peak_filling(y,half_window=half_window, lam_smooth=lam_smooth, sections=sections, max_iter=max_iter)
+
+
+        # Two subplots first showing original data + baseline and second showing the corrected data
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        ax[0].plot(data["x"], data["y"], label="Original Data")
+        ax[0].plot(data["x"], baseline, color="orange", label="Peak Filling 4S")
+        ax[0].set_title("Original Data + Baseline")
+        ax[0].legend()
+        ax[1].plot(data["x"], data["y"] - baseline, label="Corrected Data")
+        ax[1].set_title("Corrected Data")
+        ax[1].legend()
+        plt.show()
 
